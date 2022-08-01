@@ -1,4 +1,3 @@
-
 # import and clean (column names) the data ---------------------------------
 
 import_data <- function(my_file){
