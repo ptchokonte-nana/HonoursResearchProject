@@ -1,0 +1,40 @@
+---
+title: "Honours Project"
+author: "Philo Tchokonte-Nana"
+date: '2022-07-26'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+install.packages("pacman")
+pacman::p_load(pacman, tidyverse, janitor, tidymodels)
+```
+
+
+```{r data}
+source("./Extended_File.R")
+
+#import file
+my_file <- "concdataset.csv"
+import_data(my_file)
+
+#change data type
+column_names <- colnames(my_data[-5])
+type_data(column_names)
+
+#remove missing data ??
+
+#split data into training and test sets 
+set.seed(1000)
+split_data(my_data)
+```
+
+
+```{r model}
+
+```
+
+```{r performance}
+
+```
