@@ -12,7 +12,7 @@ pacman::p_load(pacman, tidyverse, janitor, tidymodels)
 ```
 
 ```{r data}
-source("./Extended_File.R")
+source("./extended_file.R")
 
 #import file
 my_file <- "concdataset.csv"
