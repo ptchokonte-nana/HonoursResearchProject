@@ -42,7 +42,7 @@ plt_data <- plot_data[-2] #remove hiv_status column
 plt_data <- missForest(plt_data)$ximp
 
 #box and whiskers plot
-graph_plt(plot__data)
+graph_plt(plot_data)
 ```
 
 ```{r model}
