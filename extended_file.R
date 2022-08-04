@@ -61,7 +61,10 @@ graph_plt <- function(data){
   for (i in 2:ncol(data)) {
     print(ggplot(data,
                  aes(x=TB_status, y=data[,i])) +
-            geom_boxplot())
+            geom_boxplot() +
+            ggtitle(colnames(data[i])) + 
+            xlab("TB_status") + 
+            ylab("fluorescence intensity"))
   }
 }
 
