@@ -35,14 +35,17 @@ new_data <- type_data(new_data, column_names)
 ```
 
 ```{r plot}
-#imputate missing data
-plt_data <- new_data[,5:28]
-plt_data <- plot_data[-2] #remove hiv_status column
-#data <- missForest(dataset,ntree=200, decreasing=TRUE, parallelize = "forests")$ximp #gave an error
-plt_data <- missForest(plt_data)$ximp
+#impute missing data
+plt_data <- imp_data(new_data)
+
+#check if variable in column is zero
+check_data(plt_data) # two variables that are equal to zero
 
 #box and whiskers plot
-graph_plt(plot_data)
+graph_plt(plt_data)
+
+#group graph plots
+#facet_wrap(data[,i], ncol = 5, scales = "free_y"
 ```
 
 ```{r model}
