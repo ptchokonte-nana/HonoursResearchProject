@@ -29,6 +29,7 @@ TB_data1 <- function(data, my_lst){
   }
   return(my_lst)
 }
+
 #separate into positives and negatives
 TB_data2 <- function(data){
   for (j in 1:nrow(data)) {
@@ -46,12 +47,37 @@ TB_data2 <- function(data){
 
 # rename data type from character to factor --------------------------------
 
-type_data <- function(data, column_names){
+type_data <- function(data, column_ names){
   column_name <- column_names[3:5]
   for (i in 1:3) {
     data <- data %>% mutate_at(column_name[i], as.factor)
   }
   return(data)
+}
+
+
+
+# impute missing (N/A) values in data -----------------------------------------
+
+imp_data <- function(data){
+  plt_data <- data[,5:28]
+  plt_data <- plt_data[-2] #remove hiv_status column
+  plt_data <- missForest(plt_data, ntree=200, decreasing=TRUE)$ximp
+}
+
+
+# check for a value that is zero in data -----------------------------------
+
+check_data <- function(data){
+  lst <- c() #empty list
+  for (k in 2:ncol(data)) {
+    for (l in 1:nrow(data)) {
+      if (data[l,k]==0.0){
+        lst <- append(lst, c(colnames(plt_data[k]),l))
+      }
+    }
+  }
+  return(lst)  #returns the column name and row number
 }
 
 
@@ -62,9 +88,11 @@ graph_plt <- function(data){
     print(ggplot(data,
                  aes(x=TB_status, y=data[,i])) +
             geom_boxplot() +
+            scale_x_log10(y=data[,i]) +
             ggtitle(colnames(data[i])) + 
             xlab("TB_status") + 
-            ylab("fluorescence intensity"))
+            ylab("fluorescence intensity") +
+            ggeasy::easy_center_title() )
   }
 }
 
