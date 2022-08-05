@@ -4,7 +4,7 @@
 Honour Student: Philo Tchokonte-Nana <br />
 Supervisor: Prof G. Van der Spuy <br />
 
-# Performace evaluation of various machine learning algorithms for predictive modeling of TB diagnosis using luminex data <br />
+# Performace evaluation of various machine learning algorithms for predictive modeling of TB diagnosis using Luminex data <br />
 
 ![A-typical-machine-learning-process-It-involves-multiple-stakeholders-bringing-their](https://user-images.githubusercontent.com/110400031/183097686-e8bd9184-be50-4b32-bc5e-d5ded2f92e9d.png)
 
