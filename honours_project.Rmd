@@ -9,7 +9,7 @@ output: html_document
 install.packages("pacman")
 pacman::p_load(pacman, tidyverse, janitor, tidymodels, knitr, missForest)
 knitr::opts_chunk$set(echo = TRUE)
-source("./extended_file.R")
+source("./functions_file.R")
 ```
 
 ```{r data}
