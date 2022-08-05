@@ -44,8 +44,13 @@ check_data(plt_data) # two variables that are equal to zero
 #box and whiskers plot
 graph_plt(plt_data)
 
-#group graph plots
-#facet_wrap(data[,i], ncol = 5, scales = "free_y"
+#group graph plots 
+temps <- pivot_longer(plt_data, 2:23, names_to = "Biomarkers", values_to = "Observations")
+temps
+ggplot(temps, aes(x=TB_status, y=log10(Observations))) + 
+  geom_boxplot() +
+  facet_wrap("Biomarkers") + 
+  ylab("Fluorescence Intensity")
 ```
 
 ```{r model}
