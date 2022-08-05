@@ -47,7 +47,7 @@ TB_data2 <- function(data){
 
 # rename data type from character to factor --------------------------------
 
-type_data <- function(data, column_ names){
+type_data <- function(data, column_names){
   column_name <- column_names[3:5]
   for (i in 1:3) {
     data <- data %>% mutate_at(column_name[i], as.factor)
