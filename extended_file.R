@@ -85,14 +85,11 @@ check_data <- function(data){
 
 graph_plt <- function(data){
   for (i in 2:ncol(data)) {
-    print(ggplot(data,
-                 aes(x=TB_status, y=log10(data[,i]))) +
+    print(ggplot(data,aes(x=TB_status, y=data[,i])) +
             geom_boxplot() +
-            scale_x_log10(y=data[,i]) +
             ggtitle(colnames(data[i])) + 
-            xlab("TB_status") + 
-            ylab("fluorescence intensity") +
-            ggeasy::easy_center_title() )
+            ggeasy::easy_center_title() +
+            )
   }
 }
 
