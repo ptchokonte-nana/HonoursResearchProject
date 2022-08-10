@@ -6,54 +6,32 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-install.packages("pacman")
 pacman::p_load(pacman, tidyverse, janitor, tidymodels, knitr, missForest)
 knitr::opts_chunk$set(echo = TRUE)
-source("./functions_file.R")
 ```
 
+1. Data Preparation
 ```{r data}
-#import file
-my_file <- "concdataset.csv"
-my_data <- import_data(my_file)
+source("./data_preparation.R")
 
-#remove columns
-new_data <- my_data #duplicate data 
-new_data <- remove_data(new_data)
-
-#remove "possible" from data 
-my_list <- c() #empty list
-my_list <- TB_data1(new_data, my_list)
-new_data <- new_data[-my_list, ] #remove the rows
-
-#TB_status: positive or negative
-new_data <- TB_data2(new_data)
-
-#change data type
-column_names <- colnames(new_data[-4])
-new_data <- type_data(new_data, column_names)
+#import file and clean data
+my_file <- "my_dataset.csv"
+my_data <- data_prep(my_file)
+my_data
 ```
 
+2.Analyse the data
 ```{r plot}
-#impute missing data
-plt_data <- imp_data(new_data)
+source("./analyse_data.R")
 
-#check if variable in column is zero
-check_data(plt_data) # two variables that are equal to zero
-
-#box and whiskers plot
-graph_plt(plt_data)
-
-#group graph plots 
-temps <- pivot_longer(plt_data, 2:23, names_to = "Biomarkers", values_to = "Observations")
-temps
-ggplot(temps, aes(x=TB_status, y=log10(Observations))) + 
-  geom_boxplot() +
-  facet_wrap("Biomarkers") + 
-  ylab("Fluorescence Intensity")
+#plot grouped graphs
+plt_data(my_data)
 ```
 
+3. Build model
 ```{r model}
+source("./build_model.R")
+
 #split data into training and test sets 
 set.seed(1000)
 sample_data <- split_data(new_data)
@@ -61,6 +39,7 @@ train <- my_data[sample_data==1, ]
 test <- my_data[sample_data==2, ]
 ```
 
+4.Assess performance
 ```{r performance}
 
 ```
