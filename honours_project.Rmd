@@ -24,8 +24,13 @@ my_data
 ```{r plot}
 source("./analyse_data.R")
 
-#plot grouped graphs
 plt_data(my_data)
+
+#impute missing data
+impute_data <- imp_data(my_data)
+
+#check if variable in column is zero
+check_data(impute_data) # two variables that are equal to zero
 ```
 
 3. Build model
