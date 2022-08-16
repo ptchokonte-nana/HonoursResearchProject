@@ -37,14 +37,17 @@ check_data(impute_data) # two variables that are equal to zero
 ```{r model}
 source("./build_model.R")
 
-#split data into training and test sets 
-set.seed(1000)
-sample_data <- split_data(new_data)
-train <- my_data[sample_data==1, ]
-test <- my_data[sample_data==2, ]
 ```
 
 4.Assess performance
 ```{r performance}
+#training data performance
 
+
+#model performance
+rf_fit %>% collect_metrics()
+
+rf_fit %>% collect_predictions() %>% 
+  roc_curve(TB_status, .pred_Negative) %>%
+  autoplot()
 ```
