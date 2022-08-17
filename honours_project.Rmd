@@ -23,20 +23,13 @@ my_data
 2.Analyse the data
 ```{r plot}
 source("./analyse_data.R")
-
-plt_data(my_data)
-
-#impute missing data
-impute_data <- imp_data(my_data)
-
-#check if variable in column is zero
-check_data(impute_data) # two variables that are equal to zero
+#will insert code form file
 ```
 
 3. Build model
 ```{r model}
 source("./build_model.R")
-
+#will insert code form file
 ```
 
 4.Assess performance
