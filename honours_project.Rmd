@@ -48,54 +48,89 @@ model_data <- missForest(my_data[,-1], ntree=200, decreasing=TRUE)$ximp
 
 3. Build model
 ```{r model}
-#split data into training and test sets 
 set.seed(1000)
-  # This function can stratify on multiple variables
-  #70% of the data in the training set
 stratified <- stratified(model_data, c('study_site','TB_status','sex','hiv_status'), 0.7, keep.rownames=TRUE)
-  # No we create the tidymodels split data object
 sample_data <- initial_split(model_data, prop=0.7, strata = TB_status)
-  # replace the training set id's with those selected by splitstackshape
 sample_data$in_id <- as.integer(stratified$rn)
-  #create data frames for the two sets
 train_data <- training(sample_data) 
 test_data <- testing(sample_data)
-
-
-#create recipe and roles
-data_rec <- recipe(TB_status ~., data = train_data) %>%
-    #keep the variables listed but do not use them as either outcomes or predictors
-  update_role(study_site, sex, enrolment_age, new_role = "ID")
-
-
-#fit a model with a recipe and tune hyperparameters
-rf_mod <- decision_tpred_Negativeree(cost_complexity = tune(), tree_depth = tune()) %>%
-    #engine to fit model
+folds <- nested_cv(train_data, 
+                   outside = vfold_cv(repeats = 5),
+                   inside = bootstraps(times = 15))
+# recipe ------------------------------------------------------------------
+normalised_recipe <- recipe(TB_status ~., data = train_data) %>% 
+              update_role(study_site, sex, enrolment_age, new_role = "ID") %>%
+              step_normalize(all_numeric_predictors())
+all_numeric_recipe <- recipe(TB_status ~., data = train_data) %>% 
+              update_role(study_site, sex, enrolment_age, new_role = "ID") %>%
+              step_normalize(all_numeric_predictors()) %>%
+              step_dummy(all_nominal_predictors())
+# models ------------------------------------------------------------------
+decision_tree_mod <- 
+  decision_tree(cost_complexity = tune(), tree_depth = tune()) %>% 
   set_engine("rpart") %>% 
-    #predicts the type of outcome: qualitative
   set_mode("classification") 
+random_Forest_mod <- 
+  rand_forest(mtry = tune(), trees = tune(), min_n = tune()) %>% 
+  set_engine("ranger") %>% 
+  set_mode("classification")
+logistic_regression_mod <- 
+  logistic_reg(penalty = tune(), mixture = tune()) %>%
+  set_engine("glmnet") %>%
+  set_mode("classification")
+# workflow ----------------------------------------------------------------
+normalised_workflow <- 
+  workflow_set(
+    preproc = list(normalised = normalised_recipe),
+    models = list(decision_tree = decision_tree_mod, 
+                  random_Forest = random_Forest_mod)) 
+all_numeric_workflow <- 
+  workflow_set(
+    preproc = list(numeric = all_numeric_recipe),
+    models = list(logistic_regression = logistic_regression_mod)) 
+all_workflow <- bind_rows(normalised_workflow, all_numeric_workflow) %>%
+  mutate(wflow_id = gsub("(normalised_)|(numeric_)", "", wflow_id))
+# grid --------------------------------------------------------------------
+grid_ctrl <- control_grid(save_pred = TRUE, save_workflow = TRUE)
+grid_results <- all_workflow %>% workflow_map(seed = 10503,
+                                              resamples = folds,
+                                              control = grid_ctrl)
+best_result <- grid_results %>% rank_results(rank_metric = "accuracy",select_best = TRUE)  %>% 
+  filter(.metric == "accuracy") %>%  
+  select(wflow_id, .config, accuracy = mean) 
+# model fit --------------------------------------------------------------
 
-rf_grid <- grid_regular(cost_complexity(), tree_depth(), levels = 5)
+fit_model <- function(model,grid,data){
+  best_results <- 
+   grid %>% 
+   extract_workflow_set_result(model) %>% 
+   select_best(metric = "accuracy")
+  model_fit <- 
+   grid %>% 
+   extract_workflow(model) %>% 
+   finalize_workflow(best_results) %>% 
+   fit(data)
+  return(model_fit)
+}
 
-folds <- vfold_cv(train_data)
+#training set predictions
+rf_pred <- fit_model("random_Forest", grid_results, train_data)
+rf_pred %>% predict(train_data,type = "prob") %>% 
+  bind_cols(train_data %>% select(TB_status)) %>%
+  roc_auc(TB_status, .pred_Negative)
+rf_pred %>% predict(train_data,type = "prob") %>% 
+  bind_cols(train_data %>% select(TB_status)) %>%
+  roc_curve(TB_status, .pred_Negative) %>% autoplot()
 
-  #model workflow
-rf_workflow <- workflow() %>% add_model(rf_mod) %>% add_recipe(data_rec)
+dt_pred <- fit_model("decision_tree", grid_results, train_data)
+dt_pred %>% predict(train_data,type = "prob") %>% 
+  bind_cols(train_data %>% select(TB_status)) %>%
+  roc_auc(TB_status, .pred_Negative)
 
-rf_workflow
-  #tuning results
-rf_res <- rf_workflow %>% tune_grid(resamples = folds, grid = rf_grid)
-  #visualize the best top 5 results
-best_tree <- rf_res %>% select_best("accuracy")
-
-final_workflow <- rf_workflow %>% finalize_workflow(best_tree)
-
-rf_fit <- final_workflow %>% 
-    #this function fits the finalized model on the full training data set and 
-    #evaluates the finalized model on the testing data.
-  last_fit(sample_data)
-
-final_tree <- extract_workflow(rf_fit)
+lr_pred <- fit_model("logistic_regression", grid_results, train_data)
+lr_pred %>% predict(train_data,type = "prob") %>% 
+  bind_cols(train_data %>% select(TB_status)) %>%
+  roc_auc(TB_status, .pred_Negative)
 ```
 
 4.Assess performance
