@@ -130,13 +130,5 @@ lr_fit <- fit_model("logistic_regression", grid_results, train_data)
 
 4.Assess performance
 ```{r performance}
-#training data performance
 
-
-#model performance
-rf_fit %>% collect_metrics()
-
-rf_fit %>% collect_predictions() %>% 
-  roc_curve(TB_status, .pred_Negative) %>%
-  autoplot()
 ```
