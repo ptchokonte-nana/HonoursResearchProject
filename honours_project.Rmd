@@ -54,17 +54,16 @@ sample_data <- initial_split(model_data, prop=0.7, strata = TB_status)
 sample_data$in_id <- as.integer(stratified$rn)
 train_data <- training(sample_data) 
 test_data <- testing(sample_data)
-folds <- nested_cv(train_data, 
-                   outside = vfold_cv(repeats = 5),
-                   inside = bootstraps(times = 15))
+#folds <- vfold_cv(train_data, v=10, repeats = 5)
+folds <- nested_cv(train_data,outside = vfold_cv(repeats = 5),inside = bootstraps(times = 15))
 # recipe ------------------------------------------------------------------
 normalised_recipe <- recipe(TB_status ~., data = train_data) %>% 
-              update_role(study_site, sex, enrolment_age, new_role = "ID") %>%
-              step_normalize(all_numeric_predictors())
+  update_role(study_site, sex, enrolment_age, new_role = "ID") %>%
+  step_normalize(all_numeric_predictors())
 all_numeric_recipe <- recipe(TB_status ~., data = train_data) %>% 
-              update_role(study_site, sex, enrolment_age, new_role = "ID") %>%
-              step_normalize(all_numeric_predictors()) %>%
-              step_dummy(all_nominal_predictors())
+  update_role(study_site, sex, enrolment_age, new_role = "ID") %>%
+  step_normalize(all_numeric_predictors()) %>%
+  step_dummy(all_nominal_predictors())
 # models ------------------------------------------------------------------
 decision_tree_mod <- 
   decision_tree(cost_complexity = tune(), tree_depth = tune()) %>% 
@@ -91,46 +90,42 @@ all_numeric_workflow <-
 all_workflow <- bind_rows(normalised_workflow, all_numeric_workflow) %>%
   mutate(wflow_id = gsub("(normalised_)|(numeric_)", "", wflow_id))
 # grid --------------------------------------------------------------------
-grid_ctrl <- control_grid(save_pred = TRUE, save_workflow = TRUE)
-grid_results <- all_workflow %>% workflow_map(seed = 10503,
-                                              resamples = folds,
-                                              control = grid_ctrl)
+grid_ctrl <- control_grid(save_pred = TRUE, parallel_over = "everything",save_workflow = TRUE)
+grid_results <- all_workflow %>% workflow_map(seed = 10503,resamples = folds,control = grid_ctrl)
 best_result <- grid_results %>% rank_results(rank_metric = "accuracy",select_best = TRUE)  %>% 
   filter(.metric == "accuracy") %>%  
   select(wflow_id, .config, accuracy = mean) 
-# model fit --------------------------------------------------------------
-
+# model fit and performance ------------------------------------------------
 fit_model <- function(model,grid,data){
   best_results <- 
-   grid %>% 
-   extract_workflow_set_result(model) %>% 
-   select_best(metric = "accuracy")
+    grid %>% 
+    extract_workflow_set_result(model) %>% 
+    select_best(metric = "accuracy")
+  
   model_fit <- 
-   grid %>% 
-   extract_workflow(model) %>% 
-   finalize_workflow(best_results) %>% 
-   fit(data)
-  return(model_fit)
+    grid %>% 
+    extract_workflow(model) %>% 
+    finalize_workflow(best_results) %>% 
+    fit(data)
+  
+  reg_metric <- metric_set(roc_auc)
+  
+  perf <- model_fit %>%
+    predict(data, type = "prob") %>%
+    bind_cols(data %>% select(TB_status)) %>%
+    reg_metric(TB_status, .pred_Negative) %>%
+    mutate(object = model, data = "train")
+  
+  return(perf)
 }
 
-#training set predictions
-rf_pred <- fit_model("random_Forest", grid_results, train_data)
-rf_pred %>% predict(train_data,type = "prob") %>% 
-  bind_cols(train_data %>% select(TB_status)) %>%
-  roc_auc(TB_status, .pred_Negative)
-rf_pred %>% predict(train_data,type = "prob") %>% 
-  bind_cols(train_data %>% select(TB_status)) %>%
-  roc_curve(TB_status, .pred_Negative) %>% autoplot()
+rf_fit <- fit_model("random_Forest", grid_results, train_data)
 
-dt_pred <- fit_model("decision_tree", grid_results, train_data)
-dt_pred %>% predict(train_data,type = "prob") %>% 
-  bind_cols(train_data %>% select(TB_status)) %>%
-  roc_auc(TB_status, .pred_Negative)
 
-lr_pred <- fit_model("logistic_regression", grid_results, train_data)
-lr_pred %>% predict(train_data,type = "prob") %>% 
-  bind_cols(train_data %>% select(TB_status)) %>%
-  roc_auc(TB_status, .pred_Negative)
+dt_fit <- fit_model("decision_tree", grid_results, train_data)
+
+
+lr_fit <- fit_model("logistic_regression", grid_results, train_data)
 ```
 
 4.Assess performance
