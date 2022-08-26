@@ -6,7 +6,7 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-pacman::p_load(pacman, tidyverse, janitor, tidymodels, knitr, missForest)
+pacman::p_load(pacman, tidyverse, janitor, tidymodels, knitr, missForest, splitstackshape, naniar)
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
