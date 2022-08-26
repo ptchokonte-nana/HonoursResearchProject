@@ -44,6 +44,7 @@ ggplot(plot_data, aes(x=TB_status, y=log10(Observations))) +
 ```{r impute}
 #impute missing data
 model_data <- missForest(my_data[,-1], ntree=200, decreasing=TRUE)$ximp
+model_data$enrolment_age <- model_data$enrolment_age %>% floor()
 ```
 
 3. Build model
@@ -55,7 +56,7 @@ sample_data$in_id <- as.integer(stratified$rn)
 train_data <- training(sample_data) 
 test_data <- testing(sample_data)
 #folds <- vfold_cv(train_data, v=10, repeats = 5)
-folds <- nested_cv(train_data,outside = vfold_cv(repeats = 5),inside = bootstraps(times = 15))
+folds <- nested_cv(train_data,outside = vfold_cv(repeats = 1),inside = bootstraps(times = 5))
 # recipe ------------------------------------------------------------------
 normalised_recipe <- recipe(TB_status ~., data = train_data) %>% 
   update_role(study_site, sex, enrolment_age, new_role = "ID") %>%
@@ -91,15 +92,17 @@ all_workflow <- bind_rows(normalised_workflow, all_numeric_workflow) %>%
   mutate(wflow_id = gsub("(normalised_)|(numeric_)", "", wflow_id))
 # grid --------------------------------------------------------------------
 grid_ctrl <- control_grid(save_pred = TRUE, parallel_over = "everything",save_workflow = TRUE)
-grid_results <- all_workflow %>% workflow_map(seed = 10503,resamples = folds,control = grid_ctrl)
-best_result <- grid_results %>% rank_results(rank_metric = "accuracy",select_best = TRUE)  %>% 
-  filter(.metric == "accuracy") %>%  
-  select(wflow_id, .config, accuracy = mean) 
+grid_results <- c()
+for (i in 1:nrow(folds)) {
+    result <- all_workflow %>% workflow_map(seed = 10503,
+                                  resamples = folds$inner_resamples[[i]],
+                                  control = grid_ctrl)
+    grid_results <- append(grid_results, result)
+}
 # model fit and performance ------------------------------------------------
 fit_model <- function(model,grid,data){
   best_results <- 
     grid %>% 
-    extract_workflow_set_result(model) %>% 
     select_best(metric = "accuracy")
   
   model_fit <- 
@@ -118,14 +121,9 @@ fit_model <- function(model,grid,data){
   
   return(perf)
 }
-
-rf_fit <- fit_model("random_Forest", grid_results, train_data)
-
-
-dt_fit <- fit_model("decision_tree", grid_results, train_data)
-
-
-lr_fit <- fit_model("logistic_regression", grid_results, train_data)
+rf_fit <- fit_model("random_Forest", grid_results$result[[1]], train_data)
+dt_fit <- fit_model("decision_tree", grid_results$result[[2]], train_data)
+lr_fit <- fit_model("logistic_regression", grid_results$result[[3]], train_data)
 ```
 
 4.Assess performance
