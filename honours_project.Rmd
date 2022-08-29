@@ -100,7 +100,7 @@ for (i in 1:nrow(folds)) {
     grid_results <- append(grid_results, result)
 }
 # model fit and performance ------------------------------------------------
-fit_model <- function(model,grid,data){
+fit_model <- function(model, grid, data){
   best_results <- 
     grid %>% 
     select_best(metric = "accuracy")
@@ -109,14 +109,18 @@ fit_model <- function(model,grid,data){
     extract_workflow(model) %>% 
     finalize_workflow(best_results) %>% 
     fit(data = analysis(data))
-  reg_metric <- metric_set(roc_auc)
-  perf <- 
-    model_fit %>%
-    predict(new_data = assessment(data), type = "prob") %>%
-    bind_cols(assessment(data) %>% select(TB_status)) %>%
-    reg_metric(TB_status, .pred_Negative) %>%
-    mutate(object = model, data = "train")
-  return(perf)
+  reg_metric <- metric_set(sensitivity, specificity)
+  pred <- 
+    predict(model_fit, assessment(data)) %>%
+    bind_cols(predict(model_fit, assessment(data), type = "prob")) %>%
+    bind_cols(assessment(data) %>% select(TB_status)) 
+  perf <- pred %>%
+    roc_auc(TB_status, .pred_Negative)
+  perf2 <- pred %>%
+    reg_metric(TB_status, .pred_class, estimate = .pred_class) 
+  
+  final <- rbind(perf, perf2) %>% mutate(Model = model, Data = "Training")
+  return(final)
 }
 rf_fit <- fit_model("random_Forest", grid_results$result[[1]], folds$splits[[1]])
 dt_fit <- fit_model("decision_tree", grid_results$result[[2]], folds$splits[[2]])
