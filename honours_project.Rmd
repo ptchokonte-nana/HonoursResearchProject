@@ -6,14 +6,14 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-pacman::p_load(pacman, tidyverse, janitor, tidymodels, knitr, missForest)
+pacman::p_load(pacman, tidyverse, janitor, tidymodels, knitr, missForest, splitstackshape)
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
 1. Data Preparation
 ```{r data}
 #import file and clean data
-my_file <- "my_dataset.csv"
+my_file <- "../data/concdataset.csv"
 
 my_data <- read.csv(my_file, header = TRUE, sep = ",") %>% 
   janitor::clean_names(.) %>%
@@ -22,7 +22,9 @@ my_data <- read.csv(my_file, header = TRUE, sep = ",") %>%
 
 my_data <- my_data[,which(!colnames(my_data) %in% c("barcode","timepoint_id"))]
 my_data <- my_data %>% filter(TB_status != "Possible")
-my_data <- my_data %>% replace_with_na(replace = list(enrolment_age=0, hiv_status=common_na_strings))
+my_data$enrolment_age[my_data$enrolment_age == 0] <- NA
+my_data$hiv_status[my_data$hiv_status == 'N/A'] <- NA
+# my_data <- my_data %>% replace_with_na(replace = list(enrolment_age=0, hiv_status=common_na_strings))
 my_data$TB_status[my_data$TB_status %in% c("Probable","Definite")] <- "Positive"
 my_data$TB_status[my_data$TB_status != "Positive"] <- "Negative"
 my_data <- my_data %>% mutate_at(c("study_site","sex","TB_status","hiv_status"), as.factor)
@@ -55,7 +57,8 @@ sample_data$in_id <- as.integer(stratified$rn)
 train_data <- training(sample_data) 
 test_data <- testing(sample_data)
 #folds <- vfold_cv(train_data, v=10, repeats = 5)
-folds <- nested_cv(train_data,outside = vfold_cv(repeats = 5),inside = bootstraps(times = 15))
+# folds <- nested_cv(train_data,outside = vfold_cv(repeats = 5),inside = bootstraps(times = 15))
+folds <- nested_cv(train_data,outside = vfold_cv(v=10, repeats = 1, strata=TB_status),inside = vfold_cv(v=10, repeats = 5, strata = TB_status))
 # recipe ------------------------------------------------------------------
 normalised_recipe <- recipe(TB_status ~., data = train_data) %>% 
   update_role(study_site, sex, enrolment_age, new_role = "ID") %>%
