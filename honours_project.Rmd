@@ -6,7 +6,7 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-pacman::p_load(pacman, tidyverse, janitor, tidymodels, knitr, missForest, splitstackshape)
+pacman::p_load(pacman, tidyverse, janitor, tidymodels, knitr, missForest, splitstackshape, naniar)
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
@@ -15,7 +15,7 @@ knitr::opts_chunk$set(echo = TRUE)
 #import file and clean data
 my_file <- "../data/concdataset.csv"
 
-my_data <- read.csv(my_file, header = TRUE, sep = ",") %>% 
+my_data <- read.csv(my_file, header = TRUE, sep = ",") %>%
   janitor::clean_names(.) %>%
   rename(., hiv_status = hi_vstatus) %>% #did not name hiv_status properly
   rename(., TB_status = final_class)
@@ -39,13 +39,14 @@ plot_data <- pivot_longer(plot_data, 7:28, names_to = "Biomarkers", values_to = 
 
 ggplot(plot_data, aes(x=TB_status, y=log10(Observations))) +
   geom_boxplot(outlier.size=0.3) +
-  facet_wrap("Biomarkers", ncol = 6) + 
+  facet_wrap("Biomarkers", ncol = 6) +
   ylab("log10 Concentration")
 ```
 
 ```{r impute}
 #impute missing data
 model_data <- missForest(my_data[,-1], ntree=200, decreasing=TRUE)$ximp
+model_data$enrolment_age <- model_data$enrolment_age %>% floor()
 ```
 
 3. Build model
@@ -54,81 +55,78 @@ set.seed(1000)
 stratified <- stratified(model_data, c('study_site','TB_status','sex','hiv_status'), 0.7, keep.rownames=TRUE)
 sample_data <- initial_split(model_data, prop=0.7, strata = TB_status)
 sample_data$in_id <- as.integer(stratified$rn)
-train_data <- training(sample_data) 
+train_data <- training(sample_data)
 test_data <- testing(sample_data)
 #folds <- vfold_cv(train_data, v=10, repeats = 5)
-# folds <- nested_cv(train_data,outside = vfold_cv(repeats = 5),inside = bootstraps(times = 15))
-folds <- nested_cv(train_data,outside = vfold_cv(v=10, repeats = 1, strata=TB_status),inside = vfold_cv(v=10, repeats = 5, strata = TB_status))
+folds <- nested_cv(train_data,outside = vfold_cv(repeats = 1),inside = bootstraps(times = 5))
 # recipe ------------------------------------------------------------------
-normalised_recipe <- recipe(TB_status ~., data = train_data) %>% 
+normalised_recipe <- recipe(TB_status ~., data = train_data) %>%
   update_role(study_site, sex, enrolment_age, new_role = "ID") %>%
   step_normalize(all_numeric_predictors())
-all_numeric_recipe <- recipe(TB_status ~., data = train_data) %>% 
+all_numeric_recipe <- recipe(TB_status ~., data = train_data) %>%
   update_role(study_site, sex, enrolment_age, new_role = "ID") %>%
   step_normalize(all_numeric_predictors()) %>%
   step_dummy(all_nominal_predictors())
 # models ------------------------------------------------------------------
-decision_tree_mod <- 
-  decision_tree(cost_complexity = tune(), tree_depth = tune()) %>% 
-  set_engine("rpart") %>% 
-  set_mode("classification") 
-random_Forest_mod <- 
-  rand_forest(mtry = tune(), trees = tune(), min_n = tune()) %>% 
-  set_engine("ranger") %>% 
+decision_tree_mod <-
+  decision_tree(cost_complexity = tune(), tree_depth = tune()) %>%
+  set_engine("rpart") %>%
   set_mode("classification")
-logistic_regression_mod <- 
+random_Forest_mod <-
+  rand_forest(mtry = tune(), trees = tune(), min_n = tune()) %>%
+  set_engine("ranger") %>%
+  set_mode("classification")
+logistic_regression_mod <-
   logistic_reg(penalty = tune(), mixture = tune()) %>%
   set_engine("glmnet") %>%
   set_mode("classification")
 # workflow ----------------------------------------------------------------
-normalised_workflow <- 
+normalised_workflow <-
   workflow_set(
     preproc = list(normalised = normalised_recipe),
-    models = list(decision_tree = decision_tree_mod, 
-                  random_Forest = random_Forest_mod)) 
-all_numeric_workflow <- 
+    models = list(decision_tree = decision_tree_mod,
+                  random_Forest = random_Forest_mod))
+all_numeric_workflow <-
   workflow_set(
     preproc = list(numeric = all_numeric_recipe),
-    models = list(logistic_regression = logistic_regression_mod)) 
+    models = list(logistic_regression = logistic_regression_mod))
 all_workflow <- bind_rows(normalised_workflow, all_numeric_workflow) %>%
   mutate(wflow_id = gsub("(normalised_)|(numeric_)", "", wflow_id))
 # grid --------------------------------------------------------------------
 grid_ctrl <- control_grid(save_pred = TRUE, parallel_over = "everything",save_workflow = TRUE)
-grid_results <- all_workflow %>% workflow_map(seed = 10503,resamples = folds,control = grid_ctrl)
-best_result <- grid_results %>% rank_results(rank_metric = "accuracy",select_best = TRUE)  %>% 
-  filter(.metric == "accuracy") %>%  
-  select(wflow_id, .config, accuracy = mean) 
-# model fit and performance ------------------------------------------------
-fit_model <- function(model,grid,data){
-  best_results <- 
-    grid %>% 
-    extract_workflow_set_result(model) %>% 
-    select_best(metric = "accuracy")
-  
-  model_fit <- 
-    grid %>% 
-    extract_workflow(model) %>% 
-    finalize_workflow(best_results) %>% 
-    fit(data)
-  
-  reg_metric <- metric_set(roc_auc)
-  
-  perf <- model_fit %>%
-    predict(data, type = "prob") %>%
-    bind_cols(data %>% select(TB_status)) %>%
-    reg_metric(TB_status, .pred_Negative) %>%
-    mutate(object = model, data = "train")
-  
-  return(perf)
+grid_results <- c()
+for (i in 1:nrow(folds)) {
+    result <- all_workflow %>% workflow_map(seed = 10503,
+                                  resamples = folds$inner_resamples[[i]],
+                                  control = grid_ctrl)
+    grid_results <- append(grid_results, result)
 }
+# model fit and performance ------------------------------------------------
+fit_model <- function(model, grid, data){
+  best_results <-
+    grid %>%
+    select_best(metric = "accuracy")
+  model_fit <-
+    grid %>%
+    extract_workflow(model) %>%
+    finalize_workflow(best_results) %>%
+    fit(data = analysis(data))
+  reg_metric <- metric_set(sensitivity, specificity)
+  pred <-
+    predict(model_fit, assessment(data)) %>%
+    bind_cols(predict(model_fit, assessment(data), type = "prob")) %>%
+    bind_cols(assessment(data) %>% select(TB_status))
+  perf <- pred %>%
+    roc_auc(TB_status, .pred_Negative)
+  perf2 <- pred %>%
+    reg_metric(TB_status, .pred_class, estimate = .pred_class)
 
-rf_fit <- fit_model("random_Forest", grid_results, train_data)
-
-
-dt_fit <- fit_model("decision_tree", grid_results, train_data)
-
-
-lr_fit <- fit_model("logistic_regression", grid_results, train_data)
+  final <- rbind(perf, perf2) %>% mutate(Model = model, Data = "Training")
+  return(final)
+}
+rf_fit <- fit_model("random_Forest", grid_results$result[[1]], folds$splits[[1]])
+dt_fit <- fit_model("decision_tree", grid_results$result[[2]], folds$splits[[2]])
+lr_fit <- fit_model("logistic_regression", grid_results$result[[3]], folds$splits[[3]])
 ```
 
 4.Assess performance
