@@ -96,7 +96,7 @@ all_workflow <- bind_rows(normalised_workflow, all_numeric_workflow) %>%
 grid_ctrl <- control_grid(save_pred = TRUE, parallel_over = "everything",save_workflow = TRUE)
 cl <- makeCluster(3, type = "PSOCK") #"FORK"
 registerDoParallel(cl) #cores = 3
-result <- foreach(i=1:nrow(folds)) %do% {
+grid_results <- foreach(i=1:nrow(folds)) %do% {
   all_workflow %>% workflow_map(seed = 10503,
                                 resamples = folds$inner_resamples[[i]],
                                 control = grid_ctrl)
@@ -125,9 +125,9 @@ fit_model <- function(model, grid, data){
   final <- rbind(perf, perf2) %>% mutate(Model = model, Data = "Training")
   return(final)
 }
-rf_fit <- fit_model("random_Forest", grid_results$result[[1]], folds$splits[[1]])
-dt_fit <- fit_model("decision_tree", grid_results$result[[2]], folds$splits[[2]])
-lr_fit <- fit_model("logistic_regression", grid_results$result[[3]], folds$splits[[3]])
+#rf_fit <- fit_model("random_Forest", grid_results$result[[1]], folds$splits[[1]])
+#dt_fit <- fit_model("decision_tree", grid_results$result[[2]], folds$splits[[2]])
+#lr_fit <- fit_model("logistic_regression", grid_results$result[[3]], folds$splits[[3]])
 ```
 
 4.Assess performance
