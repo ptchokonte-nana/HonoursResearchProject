@@ -58,7 +58,7 @@ sample_data$in_id <- as.integer(stratified$rn)
 train_data <- training(sample_data)
 test_data <- testing(sample_data)
 #folds <- vfold_cv(train_data, v=10, repeats = 5)
-folds <- nested_cv(train_data,outside = vfold_cv(repeats = 1, strata = TB_status),inside = vfold_cv(times = 5, strata = TB_status))
+folds <- nested_cv(train_data,outside = vfold_cv(repeats = 1, strata = TB_status),inside = vfold_cv(repeats = 5, strata = TB_status))
 # recipe ------------------------------------------------------------------
 normalised_recipe <- recipe(TB_status ~., data = train_data) %>%
   update_role(study_site, sex, enrolment_age, new_role = "ID") %>%
