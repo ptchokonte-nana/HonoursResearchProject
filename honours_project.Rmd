@@ -102,6 +102,18 @@ grid_results <- foreach(i=1:nrow(folds)) %do% {
                                 control = grid_ctrl)
 }
 stopCluster(cl)
+# best results -------------------------------------------------------------
+best_results_model <- function(data) {
+  x <- data %>% show_best("accuracy") %>%  
+    .[which.max(.$mean),] 
+  return(x)
+}
+best_results_folds <- function(data) {
+  y <- data$result %>% map_df(best_results_model) 
+  return(y)
+}
+best_results <- grid_results %>% map_df(best_results_folds) 
+
 # model fit and performance ------------------------------------------------
 fit_model <- function(model, grid, data){
   best_results <-
