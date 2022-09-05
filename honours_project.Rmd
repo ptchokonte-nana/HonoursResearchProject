@@ -12,19 +12,22 @@ knitr::opts_chunk$set(echo = TRUE)
 
 1. Data Preparation
 ```{r data}
-#import file and clean data
-my_file <- "../data/concdataset.csv"
+my_file <- "my_dataset.csv"
+my_data <- read.csv(my_file,header=TRUE,sep=",") %>% janitor::clean_names(.) %>% rename(.,hiv_status=hi_vstatus) %>% rename(.,TB_status=final_class) 
+my_data <- arrange(my_data, barcode)
+my_metadata <- "metadata.csv"
+metadata <- read.csv(my_metadata,header=TRUE,sep=",") %>% janitor::clean_names(.) %>% rename(.,hiv_status=hi_vstatus) 
+metadata <- semi_join(metadata,my_data,by="barcode")
+metadata <- arrange(metadata,barcode)
 
-my_data <- read.csv(my_file, header = TRUE, sep = ",") %>%
-  janitor::clean_names(.) %>%
-  rename(., hiv_status = hi_vstatus) %>% #did not name hiv_status properly
-  rename(., TB_status = final_class)
+for (i in 9:30) {
+  my_data[which(metadata[i] == "OOR <"),i] <- min(my_data[i], na.rm = TRUE)
+  my_data[which(metadata[i] == "OOR >"),i] <- max(my_data[i], na.rm = TRUE)
+}
 
 my_data <- my_data[,which(!colnames(my_data) %in% c("barcode","timepoint_id"))]
 my_data <- my_data %>% filter(TB_status != "Possible")
-my_data$enrolment_age[my_data$enrolment_age == 0] <- NA
-my_data$hiv_status[my_data$hiv_status == 'N/A'] <- NA
-# my_data <- my_data %>% replace_with_na(replace = list(enrolment_age=0, hiv_status=common_na_strings))
+my_data <- my_data %>% replace_with_na(replace = list(enrolment_age=0, hiv_status=common_na_strings))
 my_data$TB_status[my_data$TB_status %in% c("Probable","Definite")] <- "Positive"
 my_data$TB_status[my_data$TB_status != "Positive"] <- "Negative"
 my_data <- my_data %>% mutate_at(c("study_site","sex","TB_status","hiv_status"), as.factor)
