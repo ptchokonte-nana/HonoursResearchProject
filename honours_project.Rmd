@@ -6,24 +6,36 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-pacman::p_load(pacman, tidyverse, janitor, tidymodels, knitr, missForest)
+pacman::p_load(pacman, tidyverse, janitor, tidymodels, knitr, missForest, oParallel, foreach, furrr, future, themis)
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ## Data Preparation
 ```{r data}
-#import file and clean data
 my_file <- "my_dataset.csv"
-my_data <- read.csv(my_file, header = TRUE, sep = ",") %>% 
-  janitor::clean_names(.) %>%
-  rename(., hiv_status = hi_vstatus) %>% #did not name hiv_status properly
-  rename(., TB_status = final_class)
+my_data <- read.csv(my_file,header=TRUE,sep=",") %>% janitor::clean_names(.) %>% rename(.,hiv_status=hi_vstatus) %>% rename(.,TB_status=final_class) 
+my_data <- arrange(my_data, barcode)
+my_metadata <- "metadata.csv"
+metadata <- read.csv(my_metadata,header=TRUE,sep=",") %>% janitor::clean_names(.) %>% rename(.,hiv_status=hi_vstatus) 
+metadata <- semi_join(metadata,my_data,by="barcode")
+metadata <- arrange(metadata,barcode)
+
+for (i in 9:30) {
+  my_data[which(metadata[i] == "OOR <"),i] <- min(my_data[i], na.rm = TRUE)
+  my_data[which(metadata[i] == "OOR >"),i] <- max(my_data[i], na.rm = TRUE)
+}
+
 my_data <- my_data[,which(!colnames(my_data) %in% c("barcode","timepoint_id"))]
 my_data <- my_data %>% filter(TB_status != "Possible")
 my_data <- my_data %>% replace_with_na(replace = list(enrolment_age=0, hiv_status=common_na_strings))
 my_data$TB_status[my_data$TB_status %in% c("Probable","Definite")] <- "Positive"
 my_data$TB_status[my_data$TB_status != "Positive"] <- "Negative"
 my_data <- my_data %>% mutate_at(c("study_site","sex","TB_status","hiv_status"), as.factor)
+
+na_values <- colSums(apply(my_data,2,is.na))
+OOR_less <- colSums(apply(metadata,2,function(x) {x=="OOR <"}), na.rm = TRUE) 
+OOR_more <- colSums(apply(metadata,2,function(x) {x=="OOR >"}), na.rm = TRUE) 
+my_table <- rbind(na_values, OOR_less, OOR_more) %>% t()
 ```
 
 
@@ -44,6 +56,7 @@ ggplot(plot_data, aes(x=TB_status, y=log10(Observations))) +
 ```{r impute}
 #impute missing data
 model_data <- missForest(my_data[,-1], ntree=200, decreasing=TRUE)$ximp
+model_data$enrolment_age <- model_data$enrolment_age %>% floor()
 ```
 
 
@@ -104,15 +117,45 @@ all_workflow <- bind_rows(normalised_workflow, all_numeric_workflow) %>%
 
 # grid --------------------------------------------------------------------
 
-grid_ctrl <- control_grid(save_pred = TRUE, save_workflow = TRUE)
-grid_results <- all_workflow %>% workflow_map(resamples = folds, control = grid_ctrl)
-grid_results %>% collect_metrics() %>% filter(.metric == "accuracy") %>% 
-  select(model, .config, accuracy = mean)
+grid_ctrl <- control_grid(save_pred = TRUE, parallel_over = "everything",save_workflow = TRUE)
+cl <- makeCluster(8, type = "FORK") 
+registerDoParallel(cl) #cores = 8
+grid_results <- foreach(i=1:nrow(folds)) %do% {
+  all_workflow %>% workflow_map(seed = 10503,
+                                resamples = folds$inner_resamples[[i]],
+                                control = grid_ctrl)
+}
+stopCluster(cl)
+# training results -------------------------------------------------------------
+fit_models <- function(model, grid, data){
+  best_result <- 
+    grid %>% show_best("accuracy") %>% 
+    .[which.max(.$mean),]
+  model_fit <- 
+    grid %>% extract_workflow(model) %>% 
+    finalize_workflow(best_result) %>% 
+    fit(data=analysis(data))
+  
+  reg_metric <- metric_set(sensitivity, specificity)
+  
+  pred <- predict(model_fit, assessment(data)) %>% 
+    bind_cols(predict(model_fit, assessment(data), type = "prob")) %>%
+    bind_cols(assessment(data) %>% select(TB_status))fit_models
+  
+  perf <- pred %>% roc_auc(TB_status, .pred_Negative)
+  perf2 <- pred %>% reg_metric(TB_status, .pred_class, estimate = .pred_class)
+  
+  final <- rbind(perf, perf2) %>% mutate(Model = model)
+  
+  return(final)
+}
+best_results_folds <- function(data, fold) {
+    map2(data$wflow_id, data$result, fit_models, data=fold)
+    #fit_models(data$wflow_id[[i]], data$result[[i]], fold) 
+}
 
-grid_results %>% collect_metrics()
-
-# model fit ---------------------------------------------------------------
-
+train_results <- map2(grid_results, folds$splits, best_results_folds)
+train_results[[10]]
 ```
 
 
