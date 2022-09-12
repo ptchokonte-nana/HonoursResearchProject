@@ -1,52 +1,69 @@
+# Split data into training and test sets ---------------------------------------
 set.seed(1000)
 stratified <- stratified(model_data, c('study_site','TB_status','sex','hiv_status'), 0.7, keep.rownames=TRUE)
 sample_data <- initial_split(model_data, prop=0.7, strata = TB_status)
 sample_data$in_id <- as.integer(stratified$rn)
 train_data <- training(sample_data) 
 test_data <- testing(sample_data)
-
-train_pred_data <- train_data[,4:27]
+# Nested cross validation ------------------------------------------------------
 set.seed(500)
-nested_folds <- nested_cv(train_pred_data,
+folds <- nested_cv(train_data,
                    outside = vfold_cv(repeats = 1, strata = TB_status), 
                    inside = vfold_cv(repeats = 5, strata = TB_status))
-
-log_reg <- function(object, penalty = 1) {
+# function to fit and predict model --------------------------------------------
+log_reg <- function(object, penalty = 1, mixture = 1) {
   y_col <- ncol(object$data)
+  
+  recipe <- 
+    recipe(TB_status ~., data = train_data) %>% 
+    update_role(study_site, sex, enrolment_age, new_role = "ID") %>%
+    step_normalize(all_numeric_predictors()) %>%
+    step_dummy(all_nominal_predictors()) %>%
+    step_downsample(TB_status)
   mod <- 
-    logistic_reg(mode="classification", penalty=penalty) %>%
+    logistic_reg(penalty=penalty, mixture=mixture) %>%
     set_engine("glmnet") %>%
-    fit(TB_status ~., data = analysis(object))
+    set_mode("classification")
+  
+  wf <- workflow() %>% add_recipe(recipe) %>% add_model(mod)
+  model_fit <- wf %>% fit(data = analysis(object))
   
   holdout_pred <- 
-    predict(mod, assessment(object)) %>% 
-    bind_cols(predict(mod, assessment(object), type = "prob")) %>%
+    predict(model_fit, assessment(object)) %>% 
+    bind_cols(predict(model_fit, assessment(object), type = "prob")) %>%
     bind_cols(assessment(object) %>% select(TB_status))
   roc_auc(holdout_pred, truth=TB_status, estimate=.pred_Negative)$.estimate
-}
 
-wrapper <- function(penalty, object) log_reg(object, penalty)
-#For the nested resampling, a model needs to be fit for each tuning parameter
-#and each bootstrap split. To do this, create a wrapper
-tune_over_penalty <- function(object) {
-  tree_grid <- grid_regular(penalty(), levels = 5)
-  tree_grid %>%
-    mutate(Accuracy = map_dbl(tree_grid$penalty, wrapper, object=object))
 }
-#Since this will be called across the set of outer cross-validation splits,
-#another wrapper is required
-summarize_tune_results <- function(object) {
-  # Return row-bound tibble that has the 50 vfold_cv results
-  map_df(object$splits, tune_over_penalty) %>%
-    # For each value of the tuning parameter, compute the 
-    # average accuracy which is the inner vfold_cv estimate. 
-    group_by(penalty) %>%
+# parameterize the function over the tuning parameter --------------------------
+wrapper <- function(penalty, mixture, object) log_reg(object, penalty, mixture)
+# tune model parameters --------------------------------------------------------
+tune_over <- function(object) {
+  tree_grid <- grid_regular(penalty(), mixture(), levels = 5)
+  tree_grid %>%
+    mutate(Accuracy = map2_dbl(tree_grid$penalty, tree_grid$mixture, wrapper, object=object))
+}
+# Summary of tuning results ----------------------------------------------------
+tuning<- function(object) {
+  map_df(object$splits, tune_over) %>%
+    group_by(penalty, mixture) %>%
     summarize(mean_accuracy = mean(Accuracy, na.rm = TRUE),
               n = length(Accuracy),
               .groups = "drop")
 }
-plan(multisession)
-tuning_results <- future_map(nested_folds$inner_resamples, summarize_tune_results) 
+# Summary of training results --------------------------------------------------
+training <- function(object, penalty=1, mixture=1) {
+  wrapper(penalty, mixture, object) %>% 
+    group_by(penalty, mixture) %>%
+    summarize(outer_accuracy = mean(Accuracy, na.rm = TRUE),
+              n = length(Accuracy))
+}
+# Other ------------------------------------------------------------------------
+plan(multisession, workers=8)
+tuning_results <- future_map(folds$inner_resamples, tuning) 
+
+best_tuning <- function(dat) dat[which.max(dat$mean_accuracy),]
+tuning_vals <- tuning_results %>% map_df(best_tuning) %>% select(penalty, mixture)
 
 
 
