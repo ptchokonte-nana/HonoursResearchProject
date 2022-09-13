@@ -41,29 +41,26 @@ wrapper <- function(penalty, mixture, object) log_reg(object, penalty, mixture)
 tune_over <- function(object) {
   tree_grid <- grid_regular(penalty(), mixture(), levels = 5)
   tree_grid %>%
-    mutate(Accuracy = map2_dbl(tree_grid$penalty, tree_grid$mixture, wrapper, object=object))
+    mutate(accuracy = map2_dbl(tree_grid$penalty, tree_grid$mixture, wrapper, object=object))
 }
 # Summary of tuning results ----------------------------------------------------
 tuning<- function(object) {
   map_df(object$splits, tune_over) %>%
     group_by(penalty, mixture) %>%
-    summarize(mean_accuracy = mean(Accuracy, na.rm = TRUE),
+    summarize(roc_auc = mean(accuracy, na.rm = TRUE),
               n = length(Accuracy),
               .groups = "drop")
 }
-# Summary of training results --------------------------------------------------
-training <- function(object, penalty=1, mixture=1) {
-  wrapper(penalty, mixture, object) %>% 
-    group_by(penalty, mixture) %>%
-    summarize(outer_accuracy = mean(Accuracy, na.rm = TRUE),
-              n = length(Accuracy))
-}
-# Other ------------------------------------------------------------------------
+
 plan(multisession, workers=8)
-tuning_results <- future_map(folds$inner_resamples, tuning) 
+#tuning_results <- future_map(folds$inner_resamples, tuning) 
 
 best_tuning <- function(dat) dat[which.max(dat$mean_accuracy),]
-tuning_vals <- tuning_results %>% map_df(best_tuning) %>% select(penalty, mixture)
+tuning_vals <- tuning_results %>% map_df(best_tuning) %>% select(penalty, mixture, mean_accuracy)
+# Summary of training results --------------------------------------------------
+training <- pmap(list(tuning_vals$penalty, tuning_vals$mixture, folds$splits), wrapper)
+training_results <- tuning_vals %>% select(penalty, mixture) %>% mutate(roc_auc=training_results) %>% unnest(cols = c(roc_auc))
+training_results %>% summarise(roc_auc = mean(.$roc_auc, na.rm = TRUE)) %>% mutate(data="train", model="logistic regression")
 
 
 
