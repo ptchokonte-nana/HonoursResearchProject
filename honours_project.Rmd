@@ -85,8 +85,7 @@ random_Forest_mod <-
 logistic_regression_mod <- 
   logistic_reg(penalty = tune(), mixture = tune()) %>%
   set_engine("glmnet") %>%
-  set_mode("classification")# workflow ---------------------------------------------------------------------
-normalised_workflow <- 
+  set_mode("classification")
 # workflow ---------------------------------------------------------------------
 normalised_workflow <- 
   workflow_set(
