@@ -67,12 +67,12 @@ folds <- nested_cv(train_data,
 normalised_recipe <- recipe(TB_status ~., data = train_data) %>% 
               update_role(study_site, sex, enrolment_age, new_role = "ID") %>%
               step_normalize(all_numeric_predictors()) %>%
-              #step_downsample(TB_status)
+              step_downsample(TB_status)
 all_numeric_recipe <- recipe(TB_status ~., data = train_data) %>% 
               update_role(study_site, sex, enrolment_age, new_role = "ID") %>%
               step_normalize(all_numeric_predictors()) %>%
               step_dummy(all_nominal_predictors()) %>%
-              #step_downsample(TB_status)
+              step_downsample(TB_status)
 # models -----------------------------------------------------------------------
 decision_tree_mod <- 
   decision_tree(cost_complexity = tune(), tree_depth = tune()) %>% 
@@ -127,10 +127,8 @@ fit_models <- function(model, grid, data){
   sens <- pred %>% sensitivity(TB_status, .pred_class)
   spec <- pred %>% specificity(TB_status, .pred_class)
   
-  perf <- tibble(Model = model)
-  perf <- perf %>% mutate(roc_auc = roc_auc$.estimate)
-  perf <- perf %>% mutate(sens =  sens$.estimate)
-  perf <- perf %>% mutate(spec = spec$.estimate)
+  perf <- tibble(Model = model) %>% 
+    mutate(roc_auc=roc_auc$.estimate, sens=sens$.estimate, spec=spec$.estimate)
   
   return(perf)
 }
