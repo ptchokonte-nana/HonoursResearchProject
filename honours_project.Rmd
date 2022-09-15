@@ -98,9 +98,10 @@ all_numeric_workflow <-
     models = list(logistic_regression = logistic_regression_mod)) 
 all_workflow <- bind_rows(normalised_workflow, all_numeric_workflow) %>%
   mutate(wflow_id = gsub("(normalised_)|(numeric_)", "", wflow_id))
-# grid tuning try1--------------------------------------------------------------
+# grid tuning ------------------------------------------------------------------
 grid_ctrl <- control_grid(save_pred = TRUE, parallel_over = "everything",save_workflow = TRUE)
-cl <- makeCluster(8, type = "FORK"); registerDoParallel(cl) 
+cl <- makeCluster(availableCores(), type = "FORK")
+registerDoParallel(cl) 
 grid_results <- foreach(i=1:nrow(folds)) %do% {
   all_workflow %>% workflow_map(seed = 10503,
                                 resamples = folds$inner_resamples[[i]],
