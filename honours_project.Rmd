@@ -66,12 +66,12 @@ folds <- nested_cv(train_data,
 # recipe -----------------------------------------------------------------------
 normalised_recipe <- recipe(TB_status ~., data = train_data) %>% 
               update_role(study_site, sex, enrolment_age, new_role = "ID") %>%
-              step_normalize(all_numeric_predictors())
+              step_normalize(all_numeric_predictors()) %>%
               #step_downsample(TB_status)
 all_numeric_recipe <- recipe(TB_status ~., data = train_data) %>% 
               update_role(study_site, sex, enrolment_age, new_role = "ID") %>%
               step_normalize(all_numeric_predictors()) %>%
-              step_dummy(all_nominal_predictors()) 
+              step_dummy(all_nominal_predictors()) %>%
               #step_downsample(TB_status)
 # models -----------------------------------------------------------------------
 decision_tree_mod <- 
@@ -104,6 +104,7 @@ cl <- makeCluster(8, type = "FORK"); registerDoParallel(cl)
 grid_results <- foreach(i=1:nrow(folds)) %do% {
   all_workflow %>% workflow_map(seed = 10503,
                                 resamples = folds$inner_resamples[[i]],
+                                grid = 5,
                                 control = grid_ctrl)
 }
 stopCluster(cl)
