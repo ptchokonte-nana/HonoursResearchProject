@@ -113,7 +113,7 @@ stopCluster(cl)
 
 4. Assess performance
 ```{r performance}
-grid_results.copy <- readRDS(file = "tuning2.Rds")
+#grid_results.copy <- readRDS(file = "tuning2.Rds")
 # training results -------------------------------------------------------------
 fit_models <- function(model, grid, data, type){
   best_result <-
@@ -155,7 +155,7 @@ fit_models <- function(model, grid, data, type){
 #model results of each fold
 training_results <- foreach(x=1:10) %do% {
   model_results <- foreach(y=1:3) %do% {
-    fit_models(grid_results.copy[[x]]$wflow_id[[y]], grid_results.copy[[x]]$result[[y]], folds$splits[[x]], 1)
+    fit_models(grid_results[[x]]$wflow_id[[y]], grid_results[[x]]$result[[y]], folds$splits[[x]], 1)
   }
   #bind models by row
   bind_rows(model_results)
@@ -174,7 +174,7 @@ training_average <- foreach(x=1:3) %do% {
 #prediction results, with resample folds
 prediction_results <- foreach(x=1:10) %do% {
   model_perf <- foreach(y=1:3) %do% {
-    fit_models(grid_results.copy[[x]]$wflow_id[[y]], grid_results.copy[[x]]$result[[y]], folds$splits[[x]], 2)
+    fit_models(grid_results[[x]]$wflow_id[[y]], grid_results[[x]]$result[[y]], folds$splits[[x]], 2)
   }
 }
 
