@@ -1,4 +1,4 @@
-# ResearchProject
+# HonoursResearchProject
 
 ## Bioinformatics and Computational Biology
 Honour Student: Philo Tchokonte-Nana <br />
