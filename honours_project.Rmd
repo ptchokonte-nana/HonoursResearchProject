@@ -80,8 +80,7 @@ decision_tree_mod <-
 random_Forest_mod <- 
   rand_forest(mtry = tune(), trees = tune(), min_n = tune()) %>% 
   set_engine("ranger") %>% 
-  set_mode("classification")# workflow ---------------------------------------------------------------------
-normalised_workflow <- 
+  set_mode("classification")
 logistic_regression_mod <- 
   logistic_reg(penalty = tune(), mixture = tune()) %>%
   set_engine("glmnet") %>%
