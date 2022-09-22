@@ -184,7 +184,7 @@ roc_curve <- foreach(x=1:3) %do% {
     prediction_results[[y]][[x]] %>% unnest(cols = c(Resamples)) %>% rename(Resamples=id)
   }
   bind_rows(model_pred) %>% 
-    group_by(Resamples) %>% roc_curve(TB_status, .pred_Negative) %>% autoplot(main = all_workflow$wflow_id[[x]])
+    group_by(Resamples) %>% roc_curve(TB_status, .pred_Negative) %>% autoplot()
 }
 roc_curve
 ```
