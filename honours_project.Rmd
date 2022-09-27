@@ -8,10 +8,11 @@ output: html_document
 ```{r setup, include=FALSE}
 pacman::p_load(pacman, tidyverse, janitor, tidymodels, knitr, missForest, splitstackshape, naniar, doParallel, foreach, furrr, future, themis)
 knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(message = FALSE)
 ```
 
-1. Data Preparation
-```{r data}
+## Data Preparation
+```{r prep}
 my_file <- "my_dataset.csv"
 my_data <- read.csv(my_file,header=TRUE,sep=",") %>% janitor::clean_names(.) %>% rename(.,hiv_status=hi_vstatus) %>% rename(.,TB_status=final_class) 
 my_data <- arrange(my_data, barcode)
@@ -33,26 +34,23 @@ my_data$TB_status[my_data$TB_status != "Positive"] <- "Negative"
 my_data <- my_data %>% mutate_at(c("study_site","sex","TB_status","hiv_status"), as.factor)
 ```
 
-2.Analyse the data
+## Analyse the data
 ```{r plot}
 plot_data <- my_data
-plot_data[, 7:28] <- scale(plot_data[,7:28], center = FALSE, scale = TRUE)
-plot_data <- pivot_longer(plot_data, 7:28, names_to = "Biomarkers", values_to = "Observations")
-
-ggplot(plot_data, aes(x=TB_status, y=log10(Observations))) +
-  geom_boxplot(outlier.size=0.3) +
-  facet_wrap("Biomarkers", ncol = 6) +
-  ylab("log10 Concentration")
+plot_data[,7:28] <- scale(plot_data[,7:28],center=FALSE,scale=TRUE)
+plot_data <- pivot_longer(plot_data,7:28, names_to="Biomarkers",values_to="Observations")
+ggplot(plot_data,aes(x=TB_status,y=log10(Observations))) + geom_boxplot(outlier.size=0.3) + facet_wrap("Biomarkers",ncol=6) + ylab("log10 Concentration")
 ```
 
+## Impute Data
 ```{r impute}
-#impute missing data
-model_data <- missForest(my_data[,-1], ntree=200, decreasing=TRUE)$ximp
+model_data <- missForest(my_data[,-1],ntree=200, decreasing=TRUE)$ximp
 model_data$enrolment_age <- model_data$enrolment_age %>% floor()
 ```
 
-3. Build model
-```{r model}
+## Build model
+#Split Data
+```{r split}
 set.seed(1000)
 stratified <- stratified(model_data, c('study_site','TB_status','sex','hiv_status'), 0.7, keep.rownames=TRUE)
 sample_data <- initial_split(model_data, prop=0.7, strata = TB_status)
@@ -62,7 +60,10 @@ test_data <- testing(sample_data)
 folds <- nested_cv(train_data,
                    outside = vfold_cv(repeats = 1, strata = TB_status), 
                    inside = vfold_cv(repeats = 5, strata = TB_status))
-# recipe -----------------------------------------------------------------------
+```
+
+#Recipes
+```{r recipes}
 normalised_recipe <- recipe(TB_status ~., data = train_data) %>% 
               update_role(study_site, sex, enrolment_age, new_role = "ID") %>%
               step_normalize(all_numeric_predictors()) %>%
@@ -72,7 +73,10 @@ all_numeric_recipe <- recipe(TB_status ~., data = train_data) %>%
               step_normalize(all_numeric_predictors()) %>%
               step_dummy(all_nominal_predictors()) %>%
               step_downsample(TB_status)
-# models -----------------------------------------------------------------------
+```
+
+#Models
+```{r models}
 decision_tree_mod <- 
   decision_tree(cost_complexity = tune(), tree_depth = tune()) %>% 
   set_engine("rpart") %>% 
@@ -85,41 +89,55 @@ logistic_regression_mod <-
   logistic_reg(penalty = tune(), mixture = tune()) %>%
   set_engine("glmnet") %>%
   set_mode("classification")
-# workflow ---------------------------------------------------------------------
+# suport_vector_machine_mod <-
+#   svm_linear(cost = tune(), margin = tune()) %>%
+#   set_engine("LiblineaR") %>%
+#   set_mode("classification")
+# C5_O_mod <- 
+#   C5_rules(trees = tune(), min_n = tune()) %>%
+#   set_engine("C5.0") %>%
+#   set_mode("classification")
+```
+
+#Workflows
+```{r wf}
 normalised_workflow <- 
   workflow_set(
     preproc = list(normalised = normalised_recipe),
     models = list(decision_tree = decision_tree_mod, 
-                  random_Forest = random_Forest_mod)) 
+                  random_Forest = random_Forest_mod, 
+                  SVM = suport_vector_machine_mod)) 
 all_numeric_workflow <- 
   workflow_set(
     preproc = list(numeric = all_numeric_recipe),
     models = list(logistic_regression = logistic_regression_mod)) 
 all_workflow <- bind_rows(normalised_workflow, all_numeric_workflow) %>%
   mutate(wflow_id = gsub("(normalised_)|(numeric_)", "", wflow_id))
-# grid tuning ------------------------------------------------------------------
+```
+
+#Tuning
+```{r tuning}
 grid_ctrl <- control_grid(save_pred = TRUE, parallel_over = "everything",save_workflow = TRUE)
 cl <- makeCluster(availableCores(), type = "FORK")
 registerDoParallel(cl)
 grid_results <- foreach(i=1:nrow(folds)) %do% {
-  all_workflow %>% workflow_map(seed = 10503,
+  all_workflow %>% workflow_map(seed = 1503,
                                 resamples = folds$inner_resamples[[i]],
                                 grid = 25,
                                 control = grid_ctrl)
 }
 stopCluster(cl)
+grid_results.copy <- readRDS(file = "tuning2.Rds") #load tuning results
 ```
 
-4. Assess performance
+## Assess training performance
 ```{r performance}
-#grid_results.copy <- readRDS(file = "tuning2.Rds")
-# training results -------------------------------------------------------------
 fit_models <- function(model, grid, data, type){
   best_result <-
     grid %>%
     collect_metrics() %>%
     filter(.metric=="roc_auc") %>%
-    summarise_if(is.numeric, mean, na.rm=TRUE)
+    .[which.max(.$mean),]
   model_fit <-
     grid %>% extract_workflow(model) %>%
     finalize_workflow(best_result) %>%
@@ -133,8 +151,8 @@ fit_models <- function(model, grid, data, type){
   sens <- pred %>% sensitivity(TB_status, .pred_class)
   spec <- pred %>% specificity(TB_status, .pred_class)
 
-  perf <- tibble(Model = model) %>% 
-    mutate(roc_auc = roc_auc$.estimate, sens =  sens$.estimate, spec = spec$.estimate, data="train")
+  perf <- tibble(Model = model, data="train") %>% 
+    mutate(roc_auc = roc_auc$.estimate, sens =  sens$.estimate, spec = spec$.estimate)
     
   if (type==1){
     return(perf)
@@ -149,12 +167,12 @@ fit_models <- function(model, grid, data, type){
 }
 ```
 
+#Training Performance: Sens, Spec and AUC
 ```{r}
-# Training performance ---------------------------------------------------------
 #model results of each fold
 training_results <- foreach(x=1:10) %do% {
   model_results <- foreach(y=1:3) %do% {
-    fit_models(grid_results[[x]]$wflow_id[[y]], grid_results[[x]]$result[[y]], folds$splits[[x]], 1)
+    fit_models(grid_results.copy[[x]]$wflow_id[[y]], grid_results.copy[[x]]$result[[y]], folds$splits[[x]], 1)
   }
   #bind models by row
   bind_rows(model_results)
@@ -168,13 +186,12 @@ training_average <- foreach(x=1:3) %do% {
 training_average
 ```
 
-
+#Training Performance: ROC curve
 ```{r}
-# ROC curves
 #prediction results, with resample folds
 prediction_results <- foreach(x=1:10) %do% {
   model_perf <- foreach(y=1:3) %do% {
-    fit_models(grid_results[[x]]$wflow_id[[y]], grid_results[[x]]$result[[y]], folds$splits[[x]], 2)
+    fit_models(grid_results.copy[[x]]$wflow_id[[y]], grid_results.copy[[x]]$result[[y]], folds$splits[[x]], 2)
   }
 }
 
