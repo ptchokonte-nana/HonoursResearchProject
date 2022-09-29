@@ -77,10 +77,10 @@ all_numeric_recipe <- recipe(TB_status ~., data = train_data) %>%
 
 #Models
 ```{r models}
-decision_tree_mod <- 
-  decision_tree(cost_complexity = tune(), tree_depth = tune()) %>% 
-  set_engine("rpart") %>% 
-  set_mode("classification") 
+#decision_tree_mod <- 
+#  decision_tree(cost_complexity = tune(), tree_depth = tune()) %>% 
+#  set_engine("rpart") %>% 
+#  set_mode("classification") 
 random_Forest_mod <- 
   rand_forest(mtry = tune(), trees = tune(), min_n = tune()) %>% 
   set_engine("ranger") %>% 
@@ -89,10 +89,10 @@ logistic_regression_mod <-
   logistic_reg(penalty = tune(), mixture = tune()) %>%
   set_engine("glmnet") %>%
   set_mode("classification")
-# suport_vector_machine_mod <-
-#   svm_linear(cost = tune(), margin = tune()) %>%
-#   set_engine("LiblineaR") %>%
-#   set_mode("classification")
+SVM <-
+  svm_linear(cost = tune(), margin = tune()) %>%
+  set_engine("LiblineaR") %>%
+  set_mode("classification")
 # C5_O_mod <- 
 #   C5_rules(trees = tune(), min_n = tune()) %>%
 #   set_engine("C5.0") %>%
@@ -104,13 +104,13 @@ logistic_regression_mod <-
 normalised_workflow <- 
   workflow_set(
     preproc = list(normalised = normalised_recipe),
-    models = list(decision_tree = decision_tree_mod, 
-                  random_Forest = random_Forest_mod, 
-                  SVM = suport_vector_machine_mod)) 
+    models = list(#decision_tree = decision_tree_mod, 
+                  random_Forest = random_Forest_mod)) 
 all_numeric_workflow <- 
   workflow_set(
     preproc = list(numeric = all_numeric_recipe),
-    models = list(logistic_regression = logistic_regression_mod)) 
+    models = list(logistic_regression = logistic_regression_mod,
+                  SVM = SVM)) 
 all_workflow <- bind_rows(normalised_workflow, all_numeric_workflow) %>%
   mutate(wflow_id = gsub("(normalised_)|(numeric_)", "", wflow_id))
 ```
