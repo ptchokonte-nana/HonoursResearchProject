@@ -118,16 +118,19 @@ all_workflow <- bind_rows(normalised_workflow, all_numeric_workflow) %>%
 #Tuning
 ```{r tuning}
 grid_ctrl <- control_grid(save_pred = TRUE, parallel_over = "everything",save_workflow = TRUE)
-cl <- makeCluster(availableCores(), type = "FORK")
+cl <- makeCluster(8, type = "FORK")
 registerDoParallel(cl)
-grid_results <- foreach(i=1:nrow(folds)) %do% {
+
+grid_results <- foreach(i=1:1) %do% {
   all_workflow %>% workflow_map(seed = 1503,
-                                resamples = folds$inner_resamples[[i]],
-                                grid = 25,
+                                fn = "tune_bayes",
+                                resamples = folds$inner_resamples[[i]], 
+                                metrics = metric_set(roc_auc), 
+                                objective = conf_bound(kappa=2), 
                                 control = grid_ctrl)
 }
+
 stopCluster(cl)
-grid_results.copy <- readRDS(file = "tuning2.Rds") #load tuning results
 ```
 
 ## Assess training performance
