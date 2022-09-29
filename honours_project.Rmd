@@ -125,6 +125,7 @@ grid_results <- foreach(i=1:1) %do% {
   all_workflow %>% workflow_map(seed = 1503,
                                 fn = "tune_bayes",
                                 resamples = folds$inner_resamples[[i]],
+                                iter = 10,
                                 parameter_info = NULL,
                                 metrics = metric_set(roc_auc), 
                                 objective = conf_bound(kappa=2), 
