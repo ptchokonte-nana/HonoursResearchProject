@@ -206,16 +206,14 @@ fit_models <- function(model, grid, data, type){
 
 # Training Performance: Sens, Spec and AUC
 ```{r}
-#model results of each fold
 training_results <- foreach(x=1:10) %do% {
   model_results <- foreach(y=1:6) %do% {
     fit_models(grid_results[[x]]$wflow_id[[y]], grid_results[[x]]$result[[y]], folds$splits[[x]], 1)
   }
-  #bind models by row
   bind_rows(model_results)
 }
 
-#get average results of each model
+
 training_average <- foreach(x=1:6) %do% {
   bind_rows(training_results) %>% filter(Model==all_workflow$wflow_id[[x]]) %>%
     group_by(Model, data) %>% summarise_if(is.numeric, mean, na.rm=TRUE)
@@ -225,14 +223,12 @@ training_average
 
 # Training Performance: ROC curve
 ```{r}
-#prediction results, with resample folds
 prediction_results <- foreach(x=1:10) %do% {
   model_perf <- foreach(y=1:6) %do% {
     fit_models(grid_results[[x]]$wflow_id[[y]], grid_results[[x]]$result[[y]], folds$splits[[x]], 2)
   }
 }
 
-#plot average roc_curve of the 10-fold training results , with error bars
 roc_curve <- foreach(x=1:6) %do% {
   model_pred <- foreach(y=1:10) %do% {
     prediction_results[[y]][[x]] %>% unnest(cols = c(Resamples)) %>% rename(Resamples=id)
@@ -288,7 +284,7 @@ test_models <- function(model, grid, best_result, train, test, type){
 }
 ```
 
-#Model Performance: Sens, Spec and AUC
+# Model Performance: Sens, Spec and AUC
 ```{r}
 test_results <- foreach(x=1:6) %do% {
     test_models(workflows$wflow_id[[x]], bayesian_grid_results[[1]]$result[[x]], best_results[[x]], train_data, test_data, 1)
