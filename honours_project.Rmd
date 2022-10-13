@@ -35,11 +35,18 @@ my_data <- my_data %>% mutate_at(c("study_site","sex","TB_status","hiv_status"),
 ```
 
 ## Analyse the data
+# box plots
 ```{r plot}
 plot_data <- my_data
 plot_data[,7:28] <- scale(plot_data[,7:28],center=FALSE,scale=TRUE)
 plot_data <- pivot_longer(plot_data,7:28, names_to="Biomarkers",values_to="Observations")
 ggplot(plot_data,aes(x=TB_status,y=log10(Observations))) + geom_boxplot(outlier.size=0.3) + facet_wrap("Biomarkers",ncol=6) + ylab("log10 Concentration")
+```
+# stacked bar plots
+```{r }
+plot_data2 <- my_data %>% select("sex","TB_status", "hiv_status") %>% drop_na() %>% rename(HIV_status = hiv_status)
+plot_data2 <- pivot_longer(plot_data2, 2:3, names_to="Status",values_to="Observation")
+ggplot(plot_data2, aes(x=sex,fill=Observation)) + geom_bar(position = "stack") + facet_wrap("Status") + labs(y="Number of individuals") + scale_fill_manual(values=c('#8225BE', '#2596BE'))
 ```
 
 ## Impute Data
@@ -62,7 +69,7 @@ folds <- nested_cv(train_data,
                    inside = vfold_cv(repeats = 5, strata = TB_status))
 ```
 
-#Recipes
+# Recipes
 ```{r recipes}
 normalised_recipe <- recipe(TB_status ~., data = train_data) %>% 
               update_role(study_site, sex, enrolment_age, new_role = "ID") %>%
@@ -75,7 +82,7 @@ all_numeric_recipe <- recipe(TB_status ~., data = train_data) %>%
               step_downsample(TB_status)
 ```
 
-#Models
+# Models
 ```{r models}
 C50_mod <-
   C5_rules(trees = tune(), min_n = tune()) %>%
@@ -93,7 +100,7 @@ KNN_mod <-
   set_mode('classification')
 
 rand_Forest_mod <-
-  rand_forest(mtry = tune(), min_n = tune()) %>%
+  rand_forest(mtry = tune(), trees = tune(), min_n = tune()) %>%
   set_engine('ranger') %>%
   set_mode('classification')
 
@@ -197,41 +204,113 @@ fit_models <- function(model, grid, data, type){
 }
 ```
 
-#Training Performance: Sens, Spec and AUC
+# Training Performance: Sens, Spec and AUC
 ```{r}
 #model results of each fold
 training_results <- foreach(x=1:10) %do% {
-  model_results <- foreach(y=1:3) %do% {
-    fit_models(grid_results.copy[[x]]$wflow_id[[y]], grid_results.copy[[x]]$result[[y]], folds$splits[[x]], 1)
+  model_results <- foreach(y=1:6) %do% {
+    fit_models(grid_results[[x]]$wflow_id[[y]], grid_results[[x]]$result[[y]], folds$splits[[x]], 1)
   }
   #bind models by row
   bind_rows(model_results)
 }
 
 #get average results of each model
-training_average <- foreach(x=1:3) %do% {
+training_average <- foreach(x=1:6) %do% {
   bind_rows(training_results) %>% filter(Model==all_workflow$wflow_id[[x]]) %>%
     group_by(Model, data) %>% summarise_if(is.numeric, mean, na.rm=TRUE)
 } %>% bind_rows()
 training_average
 ```
 
-#Training Performance: ROC curve
+# Training Performance: ROC curve
 ```{r}
 #prediction results, with resample folds
 prediction_results <- foreach(x=1:10) %do% {
-  model_perf <- foreach(y=1:3) %do% {
-    fit_models(grid_results.copy[[x]]$wflow_id[[y]], grid_results.copy[[x]]$result[[y]], folds$splits[[x]], 2)
+  model_perf <- foreach(y=1:6) %do% {
+    fit_models(grid_results[[x]]$wflow_id[[y]], grid_results[[x]]$result[[y]], folds$splits[[x]], 2)
   }
 }
 
 #plot average roc_curve of the 10-fold training results , with error bars
-roc_curve <- foreach(x=1:3) %do% {
+roc_curve <- foreach(x=1:6) %do% {
   model_pred <- foreach(y=1:10) %do% {
     prediction_results[[y]][[x]] %>% unnest(cols = c(Resamples)) %>% rename(Resamples=id)
   }
   bind_rows(model_pred) %>% 
-    group_by(Resamples) %>% roc_curve(TB_status, .pred_Negative) %>% autoplot()
+    group_by(Resamples) %>% roc_curve(TB_status, .pred_Negative) %>% autoplot() + labs(title = workflows$wflow_id[[x]])
 }
 roc_curve
+```
+# Hyperparameter values
+```{r}
+best_grid <- foreach(x=1:10) %do% {
+  model_results <- foreach(y=1:6) %do% {
+    fit_models(grid_results[[x]]$wflow_id[[y]], grid_results[[x]]$result[[y]], folds$splits[[x]], 3)
+  }
+}
+
+best_results <- foreach(x=1:6) %do% {
+  model_results <- foreach(y=1:10) %do% {
+    best_grid.copy[[y]][[x]] 
+  }
+  bind_rows(model_results) %>% summarise_if(is.numeric, mean, na.rm=TRUE)
+}
+```
+
+## Assess model performance
+```{r}
+test_models <- function(model, grid, best_result, train, test, type){
+  model_fit <-
+    grid %>%
+    extract_workflow(model) %>%
+    finalize_workflow(best_result) %>%
+    fit(data=train)
+  pred <- 
+    predict(model_fit, test) %>%
+    bind_cols(predict(model_fit, test, type = "prob")) %>%
+    bind_cols(test %>% select(TB_status))
+
+  roc_auc <- pred %>% roc_auc(TB_status, .pred_Negative)
+  sens <- pred %>% sensitivity(TB_status, .pred_class)
+  spec <- pred %>% specificity(TB_status, .pred_class)
+
+  perf <- tibble(Model = model, data = "test") %>% 
+    mutate(roc_auc = roc_auc$.estimate, sens =  sens$.estimate, spec = spec$.estimate)
+  
+  if(type==1){
+    return(perf)
+  }
+  else if(type==2){
+    return(pred)
+  }
+
+}
+```
+
+#Model Performance: Sens, Spec and AUC
+```{r}
+test_results <- foreach(x=1:6) %do% {
+    test_models(workflows$wflow_id[[x]], bayesian_grid_results[[1]]$result[[x]], best_results[[x]], train_data, test_data, 1)
+} %>% bind_rows()
+test_results # error at KNN and sparseLDA
+```
+
+# Model Performance: ROC curve with CI intervals
+```{r}
+pROC_obj <- foreach(x=1:6) %do% {
+  my_ROC <- test_models(workflows$wflow_id[[x]], bayesian_grid_results[[1]]$result[[x]], best_results[[x]], train_data, test_data, 2) %>%
+    roc(TB_status , .pred_Positive,
+        smoothed = FALSE,
+        # arguments for ci
+        ci=TRUE, ci.type = "bars",
+        ci.method = "bootstrap", 
+        boot.n = 5000, parallel = TRUE,
+        # arguments for plot
+        plot=FALSE,
+        print.auc=TRUE, show.thres=TRUE)
+  par(pty = "s")
+  plot(my_ROC, legacy.axes=TRUE)
+  plot(ci.se(my_ROC))
+}
 ```
