@@ -138,9 +138,9 @@ all_workflow <- bind_rows(normalised_workflow, all_numeric_workflow) %>%
 svm <- parameters(cost())
 c50 <- parameters(trees(), min_n())
 en <- parameters(penalty(), mixture())
-lda <- parameters(regularization_method())
 rf <- parameters(mtry(range=c(1,27)), trees(), min_n()) 
-knn <- parameters(neighbors(), weight_func(), dist_power())
+lda <- parameters(regularization_method(c('diagonal', 'min_distance', 'shrink_cov', 'shrink_mean')))
+knn <- parameters(neighbors(), weight_func(c('rectangular', 'triangular', 'epanechnikov', 'biweight', 'triweight', 'cos', 'inv', 'gaussian', 'rank', 'optimal')), dist_power())
 
 workflows <- all_workflow %>% 
   option_add(param_info = c50, id = "C50") %>% 
@@ -231,10 +231,10 @@ prediction_results <- foreach(x=1:10) %do% {
 
 roc_curve <- foreach(x=1:6) %do% {
   model_pred <- foreach(y=1:10) %do% {
-    prediction_results[[y]][[x]] %>% unnest(cols = c(Resamples)) %>% rename(Resamples=id)
+    prediction_results.copy[[y]][[x]] %>% unnest(cols = c(Resamples)) %>% rename(Resamples=id)
   }
-  bind_rows(model_pred) %>% 
-    group_by(Resamples) %>% roc_curve(TB_status, .pred_Negative) %>% autoplot() + labs(title = workflows$wflow_id[[x]])
+  bind_rows(model_pred) %>% group_by(Resamples) %>% roc_curve(TB_status, .pred_Negative) %>%
+    autoplot() + labs(title = workflows$wflow_id[[x]]) + theme_update(plot.title = element_text(hjust = 0.5))
 }
 roc_curve
 ```
@@ -250,7 +250,15 @@ best_results <- foreach(x=1:6) %do% {
   model_results <- foreach(y=1:10) %do% {
     best_grid.copy[[y]][[x]] 
   }
-  bind_rows(model_results) %>% summarise_if(is.numeric, mean, na.rm=TRUE)
+   
+  if (x==2 || x==5) {
+    if (x==2){bind_rows(model_results) %>% .[which.max(.$mean),]}
+    else if (x==5){bind_rows(model_results) %>% .[which.max(.$mean),]}
+  }
+  else {
+    bind_rows(model_results) %>% summarise_if(is.numeric, mean, na.rm=TRUE)
+  }
+  
 }
 ```
 
@@ -306,7 +314,7 @@ pROC_obj <- foreach(x=1:6) %do% {
         plot=FALSE,
         print.auc=TRUE, show.thres=TRUE)
   par(pty = "s")
-  plot(my_ROC, legacy.axes=TRUE)
+  plot(my_ROC, legacy.axes=TRUE, grid = TRUE, main = workflows$wflow_id[[x]])  
   plot(ci.se(my_ROC))
 }
 ```
