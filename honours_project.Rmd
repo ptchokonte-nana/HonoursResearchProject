@@ -252,8 +252,7 @@ best_results <- foreach(x=1:6) %do% {
   }
    
   if (x==2 || x==5) {
-    if (x==2){bind_rows(model_results) %>% .[which.max(.$mean),]}
-    else if (x==5){bind_rows(model_results) %>% .[which.max(.$mean),]}
+    bind_rows(model_results) %>% .[which.max(.$mean),]
   }
   else {
     bind_rows(model_results) %>% summarise_if(is.numeric, mean, na.rm=TRUE)
