@@ -9,6 +9,7 @@ output: html_document
 pacman::p_load(pacman, tidyverse, janitor, tidymodels, knitr, missForest, splitstackshape, naniar, doParallel, foreach, furrr, future, themis, C50, sparsediscrim, rules, discrim, kknn, kernlab)
 knitr::opts_chunk$set(echo = TRUE)
 knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
 ```
 
 ## Data Preparation
@@ -99,7 +100,7 @@ KNN_mod <-
   set_engine('kknn') %>%
   set_mode('classification')
 
-rand_Forest_mod <-
+random_Forest_mod <-
   rand_forest(mtry = tune(), trees = tune(), min_n = tune()) %>%
   set_engine('ranger') %>%
   set_mode('classification')
@@ -154,9 +155,11 @@ workflows <- all_workflow %>%
 ## Tuning results
 ```{r}
 grid_ctrl <- control_bayes(save_pred = TRUE, parallel_over = "everything",save_workflow = TRUE)
+
 cl <- makeCluster(availableCores(), type = "PSOCK")
 registerDoParallel(cl)  
-grid_results <- foreach(i=1:nrow(folds)) %do% {
+
+bayesian_grid_results <- foreach(i=1:nrow(folds)) %do% {
    workflows %>% workflow_map(seed = 1503,
                        fn = "tune_bayes",
                        resamples = folds$inner_resamples[[i]],
@@ -164,17 +167,29 @@ grid_results <- foreach(i=1:nrow(folds)) %do% {
                        objective = conf_bound(kappa=2), 
                        control = grid_ctrl)
 }
+
 stopCluster(cl)
 ```
 
 ## Assess training performance
 ```{r performance}
 fit_models <- function(model, grid, data, type){
-  best_result <-
+  
+  if (model =="sparseLDA"){
+    best_result <-
+    grid %>%
+    collect_metrics() %>%
+    filter(regularization_method == "diagonal") %>%
+    .[which.max(.$mean),]
+  }
+  else {
+    best_result <-
     grid %>%
     collect_metrics() %>%
     filter(.metric=="roc_auc") %>%
     .[which.max(.$mean),]
+  }
+  
   model_fit <-
     grid %>% extract_workflow(model) %>%
     finalize_workflow(best_result) %>%
@@ -296,11 +311,14 @@ test_models <- function(model, grid, best_result, train, test, type){
 test_results <- foreach(x=1:6) %do% {
     test_models(workflows$wflow_id[[x]], bayesian_grid_results[[1]]$result[[x]], best_results[[x]], train_data, test_data, 1)
 } %>% bind_rows()
-test_results # error at KNN and sparseLDA
+test_results 
 ```
 
 # Model Performance: ROC curve with CI intervals
 ```{r}
+cl <- makeCluster(4, type = "FORK")
+registerDoParallel(cl)
+
 pROC_obj <- foreach(x=1:6) %do% {
   my_ROC <- test_models(workflows$wflow_id[[x]], bayesian_grid_results[[1]]$result[[x]], best_results[[x]], train_data, test_data, 2) %>%
     roc(TB_status , .pred_Positive,
@@ -316,4 +334,6 @@ pROC_obj <- foreach(x=1:6) %do% {
   plot(my_ROC, legacy.axes=TRUE, grid = TRUE, main = workflows$wflow_id[[x]])  
   plot(ci.se(my_ROC))
 }
+
+stopCluster(cl)
 ```
