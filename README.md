@@ -2,7 +2,7 @@
 
 ## Bioinformatics and Computational Biology
 Honour Student: Philo Tchokonte-Nana <br />
-Supervisor: Prof G. Van der Spuy <br />
+Supervisor: Professor Gian Van der Spuy <br />
 
 # Performace evaluation of various machine learning algorithms for predictive modeling of TB diagnosis using Luminex data <br />
 
