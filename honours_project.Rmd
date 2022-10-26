@@ -337,3 +337,32 @@ pROC_obj <- foreach(x=1:6) %do% {
 
 stopCluster(cl)
 ```
+
+#-------------------TRAINING AND TEST DIFFERENCE----------------------------
+diff <- foreach(x=1:6) %do% {
+    tibble(Model = workflows$wflow_id[[x]]) %>% 
+    mutate(roc_auc = training_average$roc_auc[[x]]- test_results$roc_auc[[x]], 
+    sens = training_average$sens[[x]]- test_results$sens[[x]],
+    spec = training_average$spec[[x]]- test_results$spec[[x]])
+} %>% bind_rows()
+#-----------------------DELONG TEST------------------------------------
+cl <- makeCluster(4, type = "FORK")
+registerDoParallel(cl)
+my_ROCobj <- foreach(x=1:6) %do% {
+    test_models(workflows$wflow_id[[x]], grid_results[[1]]$result[[x]], best_results[[x]], train_data, test_data, 2) %>%
+    roc(TB_status , .pred_Positive,
+        smoothed = FALSE,
+        # arguments for ci
+        ci=TRUE, ci.type = "bars",
+        ci.method = "bootstrap", 
+        boot.n = 5000, parallel = TRUE,
+        # arguments for plot
+        plot=FALSE)
+}
+stopCluster(cl)
+
+delong_test <- foreach(a=1:5) %do% {
+    temp <- foreach(x=(a+1):6) %do% {
+        roc.test(my_ROCobj[[a]], my_ROCobj[[x]], method="delong")
+    }
+} 
