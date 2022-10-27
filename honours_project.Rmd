@@ -366,3 +366,47 @@ delong_test <- foreach(a=1:5) %do% {
         roc.test(my_ROCobj[[a]], my_ROCobj[[x]], method="delong")
     }
 } 
+#_---------------------------------------------------------------------
+dummy <- data.frame(
+C5.0 = c(1,2,3,4),
+KNN = c(1,0,3,4),
+RF = c(1,0,7,4),
+SVM = c(1,0,7,-1),
+LDA = c(8,0,7,-1),
+EN = c(8,0,7,-1)
+)
+colNames <- names(dummy)
+mat <- matrix(NA, nrow = 6, ncol = 6)
+#p-values
+p_vals <- c(0.00712, 0.982, 0.0179, 0.000505, 0.0335,
+            0.00568, 0.553, 0.258, 0.375, 
+            0.0647, 0.000451, 0.0524, 
+            0.108, 0.808, 
+            0.01152)
+mat[lower.tri(mat)] <- combn(colNames, 2, function(x) p_vals)
+#diff auc
+lst <- c()
+diff2 <- foreach(a=1:5) %do% {
+  diff2_temp <- foreach(x=(a+1):6) %do% {
+    test_diff <- test_results$roc_auc[[a]]-test_results$roc_auc[[x]]
+    lst <- append(lst, test_diff)
+  } 
+}
+mat[upper.tri(mat)] <- combn(colNames, 2, function(x) round(lst, 5) ) 
+
+# mat <- round(mat,2)
+rownames(mat) = colnames(mat) = colnames(dummy)
+mat
+long <- reshape2::melt(mat)
+long$auc <- c(NA, 0.04227, 0.0008, 0.032440, 0.05788, 0.03048,NA,NA, 0.04307, 0.00983, 0.01561, 0.0118,NA,NA,NA, 0.03324, 0.05868, 0.03127, NA,NA,NA,NA, 0.02544, 0.00197,NA,NA,NA,NA,NA, 0.0274,NA,NA,NA,NA,NA,NA)
+long %>%
+ggplot(aes(Var1, Var2, fill = value)) + geom_tile() +
+geom_text(aes(label = value))
+#-------------------------------------------------------------------------
+p.adjust(p_vals, method = "bonferroni")
+#-------------------------------------
+dust(bayesian_training_average) %>% 
+  sprinkle(col = 3:5, round = 3) %>%
+  sprinkle_align(cols = 3:5) %>%
+  sprinkle_border(border = c("top", "bottom"), border_style = "solid") %>%
+  kable()
