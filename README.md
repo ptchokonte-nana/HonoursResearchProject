@@ -10,4 +10,6 @@ Supervisor: Professor Gian Van der Spuy <br />
 •	Method: Utilize R with the Tidymodel machine learning framework, using data collected in a clinical study <br />
 •	Performance: The performance of each algorithm will then be assessed in terms of sensitivity, specificity, and Area Under the ROC Curve (AUC)
 
+https://docs.google.com/viewer?url=${[link_to_raw_pdf](https://github.com/ptchokonte-nana/HonoursResearchProject/files/9890624/Honours.Project.pdf)}
+
 Click [Honours Project.pdf](https://github.com/ptchokonte-nana/HonoursResearchProject/files/9890624/Honours.Project.pdf) to view.
