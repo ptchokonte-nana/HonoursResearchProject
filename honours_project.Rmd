@@ -1,167 +1,446 @@
 ---
 title: "Honours Project"
-author: "Philo Tchokonte-Nana"
-date: '2022-07-26'
+author: "Philo Tchokonte-Nana and Professor Gian Van der Spuy"
+date: '2022-10-28'
 output: html_document
 ---
 
 ```{r setup, include=FALSE}
-pacman::p_load(pacman, tidyverse, janitor, tidymodels, knitr, missForest, oParallel, foreach, furrr, future, themis)
-knitr::opts_chunk$set(echo = TRUE)
+pacman::p_load(pacman, tidyverse, janitor, tidymodels, knitr, missForest, naniar, splitstackshape, ranger, glmnet, doParallel, foreach, future, themis, furrr, LiblineaR, rules, discrim, kernlab, kknn, C50, sparsediscrim, pROC, kableExtra)
+knitr::opts_chunk$set(cache = TRUE, warning = FALSE, message = FALSE, cache.lazy = FALSE)
 ```
 
-## Data Preparation
-```{r data}
-my_file <- "my_dataset.csv"
+# Data Preparation
+```{r prep}
+my_file <- "C:/Users/21811431/Documents/GitHubProjects/HonoursProject/ResearchProject/my_dataset.csv"
 my_data <- read.csv(my_file,header=TRUE,sep=",") %>% janitor::clean_names(.) %>% rename(.,hiv_status=hi_vstatus) %>% rename(.,TB_status=final_class) 
 my_data <- arrange(my_data, barcode)
-my_metadata <- "metadata.csv"
+my_metadata <- "C:/Users/21811431/Documents/GitHubProjects/HonoursProject/ResearchProject/metadata.csv"
 metadata <- read.csv(my_metadata,header=TRUE,sep=",") %>% janitor::clean_names(.) %>% rename(.,hiv_status=hi_vstatus) 
 metadata <- semi_join(metadata,my_data,by="barcode")
 metadata <- arrange(metadata,barcode)
-
 for (i in 9:30) {
   my_data[which(metadata[i] == "OOR <"),i] <- min(my_data[i], na.rm = TRUE)
   my_data[which(metadata[i] == "OOR >"),i] <- max(my_data[i], na.rm = TRUE)
 }
-
 my_data <- my_data[,which(!colnames(my_data) %in% c("barcode","timepoint_id"))]
 my_data <- my_data %>% filter(TB_status != "Possible")
 my_data <- my_data %>% replace_with_na(replace = list(enrolment_age=0, hiv_status=common_na_strings))
 my_data$TB_status[my_data$TB_status %in% c("Probable","Definite")] <- "Positive"
 my_data$TB_status[my_data$TB_status != "Positive"] <- "Negative"
 my_data <- my_data %>% mutate_at(c("study_site","sex","TB_status","hiv_status"), as.factor)
-
-na_values <- colSums(apply(my_data,2,is.na))
-OOR_less <- colSums(apply(metadata,2,function(x) {x=="OOR <"}), na.rm = TRUE) 
-OOR_more <- colSums(apply(metadata,2,function(x) {x=="OOR >"}), na.rm = TRUE) 
-my_table <- rbind(na_values, OOR_less, OOR_more) %>% t()
 ```
 
 
-## Analyse the data
+# Data exploration
+### Numerical variables:
 ```{r plot}
 plot_data <- my_data
-plot_data[, 7:28] <- scale(plot_data[,7:28], center = FALSE, scale = TRUE)
-#plot grouped graphs5
-plot_data <- pivot_longer(plot_data, 7:28, names_to = "Biomarkers", values_to = "Observations")
-ggplot(plot_data, aes(x=TB_status, y=log10(Observations))) +
-  geom_boxplot(outlier.size=0.3) +
-  facet_wrap("Biomarkers", ncol = 6) + 
-  ylab("log10 Concentration")
+plot_data[,7:28] <- scale(plot_data[,7:28],center=FALSE,scale=TRUE)
+plot_data <- pivot_longer(plot_data,7:28, names_to="Biomarkers",values_to="Observations")
+ggplot(plot_data,aes(x=TB_status,y=log10(Observations))) + geom_boxplot(outlier.size=0.3) + facet_wrap("Biomarkers",ncol=6) + ylab("log10 Concentration")
+```
+
+### Categorical variables:
+```{r }
+plot_data2 <- my_data %>% select("TB_status", "sex", "hiv_status") %>% drop_na() %>% rename(HIV_status = hiv_status)
+plot_data2 <- pivot_longer(plot_data2, 2:3, names_to="Status",values_to="Observation")
+ggplot(plot_data2, aes(x=TB_status, fill=Observation)) + geom_bar(position = "stack") + labs(y="Number of individuals") + scale_fill_manual(values=c('lightgoldenrod', 'gold3', '#2596BE', 'royalblue'))
 ```
 
 
-## Impute data
+# Data Imputation
 ```{r impute}
-#impute missing data
-model_data <- missForest(my_data[,-1], ntree=200, decreasing=TRUE)$ximp
+model_data <- missForest(my_data[,-1],ntree=200, decreasing=TRUE)$ximp
 model_data$enrolment_age <- model_data$enrolment_age %>% floor()
 ```
 
 
-## Build model
-```{r model}
+# Model design
+### Data spliting:
+```{r split}
 set.seed(1000)
-
 stratified <- stratified(model_data, c('study_site','TB_status','sex','hiv_status'), 0.7, keep.rownames=TRUE)
 sample_data <- initial_split(model_data, prop=0.7, strata = TB_status)
 sample_data$in_id <- as.integer(stratified$rn)
-
 train_data <- training(sample_data) 
 test_data <- testing(sample_data)
 
-folds <- vfold_cv(train_data)
+folds <- nested_cv(train_data,
+                   outside = vfold_cv(repeats = 1, strata = TB_status), 
+                   inside = vfold_cv(repeats = 5, strata = TB_status))
+```
 
-# recipe ------------------------------------------------------------------
-
+### Recipes:
+```{r recipes}
 normalised_recipe <- recipe(TB_status ~., data = train_data) %>% 
               update_role(study_site, sex, enrolment_age, new_role = "ID") %>%
-              step_normalize(all_numeric_predictors())
+              step_normalize(all_numeric_predictors()) %>%
+              step_downsample(TB_status)
 
 all_numeric_recipe <- recipe(TB_status ~., data = train_data) %>% 
               update_role(study_site, sex, enrolment_age, new_role = "ID") %>%
               step_normalize(all_numeric_predictors()) %>%
-              step_dummy(all_nominal_predictors())
+              step_dummy(all_nominal_predictors()) %>%
+              step_downsample(TB_status)
+```
 
-# models ------------------------------------------------------------------
-
-decision_tree_mod <- 
-  decision_tree(cost_complexity = tune(), tree_depth = tune()) %>% 
-  set_engine("rpart") %>% 
-  set_mode("classification") 
-random_Forest_mod <- 
-  rand_forest(mtry = tune(), trees = tune(), min_n = tune()) %>% 
-  set_engine("ranger") %>% 
+### Models:
+```{r models}
+C50_mod <-
+  C5_rules(trees = tune(), min_n = tune()) %>%
+  set_engine('C5.0') %>%
   set_mode("classification")
-logistic_regression_mod <- 
+Elastic_net_mod <-
   logistic_reg(penalty = tune(), mixture = tune()) %>%
-  set_engine("glmnet") %>%
+  set_engine('glmnet') %>%
   set_mode("classification")
+KNN_mod <-
+  nearest_neighbor(neighbors = tune(), weight_func = tune(), dist_power = tune()) %>%
+  set_engine('kknn') %>%
+  set_mode('classification')
+random_Forest_mod <-
+  rand_forest(mtry = tune(), trees = tune(), min_n = tune()) %>%
+  set_engine('ranger') %>%
+  set_mode('classification')
+sparseLDA_mod <- 
+  discrim_linear(regularization_method = tune()) %>%
+  set_engine("sparsediscrim") %>%
+  set_mode("classification")
+SVM_mod <-
+  svm_linear(cost = tune()) %>%
+  set_engine('kernlab') %>%
+  set_mode('classification')
+```
 
-# workflow ----------------------------------------------------------------
-
+### Workflows:
+```{r wf}
 normalised_workflow <- 
-  workflow_set(
-    preproc = list(normalised = normalized_recipe),
-    models = list(decision_tree = decision_tree_mod, 
-                  random_Forest = random_Forest_mod)) 
-
+  workflow_set( 
+    preproc = list(normalised = normalised_recipe),
+    models = list(C5.0 = C50_mod,
+                  KNN = KNN_mod,
+                  Random_forest = random_Forest_mod)) 
 all_numeric_workflow <- 
   workflow_set(
     preproc = list(numeric = all_numeric_recipe),
-    models = list(logistic_regression = logistic_regression_mod)) 
-
+    models = list(SVM = SVM_mod,
+                  sparseLDA = sparseLDA_mod,
+                  Elastic_net = Elastic_net_mod))
 all_workflow <- bind_rows(normalised_workflow, all_numeric_workflow) %>%
   mutate(wflow_id = gsub("(normalised_)|(numeric_)", "", wflow_id))
+```
 
-# grid --------------------------------------------------------------------
+# Tuning Parameter information:
+```{r param_info}
+svm <- parameters(cost())
+c50 <- parameters(trees(), min_n())
+en <- parameters(penalty(), mixture())
+rf <- parameters(mtry(range=c(1,27)), trees(), min_n()) 
+lda <- parameters(regularization_method(values = c('diagonal', 'min_distance', 'shrink_cov', 'shrink_mean')))
+knn <- parameters(neighbors(), weight_func(), dist_power()) %>% update(weight_func = weight_func(values = c('rectangular', 'triangular', 'epanechnikov', 'biweight', 'triweight', 'cos', 'inv', 'gaussian', 'rank', 'optimal')))
 
-grid_ctrl <- control_grid(save_pred = TRUE, parallel_over = "everything",save_workflow = TRUE)
-cl <- makeCluster(8, type = "FORK") 
-registerDoParallel(cl) #cores = 8
-grid_results <- foreach(i=1:nrow(folds)) %do% {
-  all_workflow %>% workflow_map(seed = 10503,
-                                resamples = folds$inner_resamples[[i]],
-                                control = grid_ctrl)
+workflows <- all_workflow %>% 
+  option_add(param_info = c50, id = "C5.0") %>% 
+  option_add(param_info = knn, id = "KNN") %>%
+  option_add(param_info = rf, id = "Random_forest") %>%
+  option_add(param_info = svm, id = "SVM") %>%
+  option_add(param_info = lda, id = "sparseLDA") %>%
+  option_add(param_info = en, id = "Elastic_net")
+```
+
+# Model Tuning
+```{r tuning, warning=FALSE, message=FALSE}
+grid_ctrl <- control_bayes(save_pred = TRUE, parallel_over = "everything",save_workflow = TRUE)
+
+cl <- makeCluster(availableCores(), type = "PSOCK")
+registerDoParallel(cl)
+
+grid_results <- foreach(i=1:10) %do% {
+   workflows %>% workflow_map(seed = 1503,
+                       fn = "tune_bayes",
+                       resamples = folds$inner_resamples[[i]],
+                       metrics = metric_set(roc_auc),
+                       objective = conf_bound(kappa=2),
+                       control = grid_ctrl)
 }
 stopCluster(cl)
-# training results -------------------------------------------------------------
-fit_models <- function(model, grid, data){
-  best_result <- 
-    grid %>% show_best("accuracy") %>% 
-    .[which.max(.$mean),]
-  model_fit <- 
-    grid %>% extract_workflow(model) %>% 
-    finalize_workflow(best_result) %>% 
-    fit(data=analysis(data))
-  
-  reg_metric <- metric_set(sensitivity, specificity)
-  
-  pred <- predict(model_fit, assessment(data)) %>% 
-    bind_cols(predict(model_fit, assessment(data), type = "prob")) %>%
-    bind_cols(assessment(data) %>% select(TB_status))fit_models
-  
-  perf <- pred %>% roc_auc(TB_status, .pred_Negative)
-  perf2 <- pred %>% reg_metric(TB_status, .pred_class, estimate = .pred_class)
-  
-  final <- rbind(perf, perf2) %>% mutate(Model = model)
-  
-  return(final)
-}
-best_results_folds <- function(data, fold) {
-    map2(data$wflow_id, data$result, fit_models, data=fold)
-    #fit_models(data$wflow_id[[i]], data$result[[i]], fold) 
-}
-
-train_results <- map2(grid_results, folds$splits, best_results_folds)
-train_results[[10]]
 ```
 
 
-## Assess performance
+# Model training
 ```{r performance}
-#training data performance
+fit_models <- function(model, grid, data, type){
+  
+  if (model =="sparseLDA"){
+    best_result <-
+    grid %>%
+    collect_metrics() %>%
+    filter(regularization_method == "diagonal") %>%
+    .[which.max(.$mean),]
+  }
+  else {
+    best_result <-
+    grid %>%
+    collect_metrics() %>%
+    filter(.metric=="roc_auc") %>%
+    .[which.max(.$mean),]
+  }
+  
+  model_fit <-
+    grid %>% extract_workflow(model) %>%
+    finalize_workflow(best_result) %>%
+    fit(data=analysis(data))
+  pred <- 
+    predict(model_fit, assessment(data)) %>%
+    bind_cols(predict(model_fit, assessment(data), type = "prob")) %>%
+    bind_cols(assessment(data) %>% select(TB_status))
+  roc_auc <- pred %>% roc_auc(TB_status, .pred_Negative)
+  sens <- pred %>% sensitivity(TB_status, .pred_class)
+  spec <- pred %>% specificity(TB_status, .pred_class)
+  perf <- tibble(Model = model, data="train") %>% 
+    mutate(auc = roc_auc$.estimate, sens =  sens$.estimate, spec = spec$.estimate)
+    
+  if (type==1){
+    return(perf)
+  }
+  else if(type==2){
+    pred <- pred %>% mutate(Resamples = data$id)
+    return(pred)
+  }
+  else if(type==3){
+    return(best_result)
+  }
+}
+```
 
-#model performance
+## Training set model performance: AUC, Sensitivity and Specificity
+```{r, warning=FALSE, message=FALSE}
+training_results <- foreach(x=1:10) %do% {
+  model_results <- foreach(y=1:6) %do% {
+    fit_models(grid_results[[x]]$wflow_id[[y]], grid_results[[x]]$result[[y]], folds$splits[[x]], 1)
+  }
+  bind_rows(model_results)
+}
+training_average <- foreach(x=1:6) %do% {
+  bind_rows(training_results) %>% filter(Model==all_workflow$wflow_id[[x]]) %>%
+    group_by(Model, data) %>% summarise_if(is.numeric, list(mean = mean,
+                    sd = sd), na.rm=TRUE)
+} %>% bind_rows()
+
+training_average[3:8] <- training_average[3:8] %>% round(3)
+
+new_training_average <- foreach(x=1:6) %do% {
+  tibble(Model = workflows$wflow_id[[x]], data = "train") %>%
+  mutate(auc = paste0(training_average$auc_mean[[x]], "\u00B1", training_average$auc_sd[[x]]),
+         sens = paste0(training_average$sens_mean[[x]], "\u00B1", training_average$sens_sd[[x]]),
+         spec = paste0(training_average$spec_mean[[x]], "\u00B1", training_average$spec_sd[[x]]))
+} %>% bind_rows()
+
+arrange(new_training_average, desc(auc)) %>% 
+  kable(align=rep('c')) %>% 
+  kable_paper(full_width = F)
+```
+
+## Training set model performance: ROC curves
+```{r, message=FALSE}
+prediction_results <- foreach(x=1:10) %do% {
+  model_perf <- foreach(y=1:6) %do% {
+    fit_models(grid_results[[x]]$wflow_id[[y]], grid_results[[x]]$result[[y]], folds$splits[[x]], 2)
+  }
+}
+roc_curve <- foreach(x=1:6) %do% {
+  model_pred <- foreach(y=1:10) %do% {
+    prediction_results[[y]][[x]] %>% unnest(cols = c(Resamples)) %>% rename(Resamples=id)
+  }
+  bind_rows(model_pred) %>% group_by(Resamples) %>% roc_curve(TB_status, .pred_Negative) %>%
+    autoplot() + labs(title = workflows$wflow_id[[x]]) + theme_update(plot.title = element_text(hjust = 0.5))
+}
+roc_curve
+```
+
+### Hyperparameter values extraction:
+```{r, warning=FALSE}
+best_grid <- foreach(x=1:10) %do% {
+  model_results <- foreach(y=1:6) %do% {
+    fit_models(grid_results[[x]]$wflow_id[[y]], grid_results[[x]]$result[[y]], folds$splits[[x]], 3)
+  }
+}
+best_results <- foreach(x=1:6) %do% {
+  model_results <- foreach(y=1:10) %do% {
+    best_grid[[y]][[x]] 
+  }
+   
+  if (x==2 || x==5) {
+    bind_rows(model_results) %>% .[which.max(.$mean),]
+  }
+  else {
+    bind_rows(model_results) %>% summarise_if(is.numeric, mean, na.rm=TRUE)
+  }
+  
+}
+```
+
+
+# Model testing
+```{r}
+test_models <- function(model, grid, best_result, train, test, type){
+  model_fit <-
+    grid %>%
+    extract_workflow(model) %>%
+    finalize_workflow(best_result) %>%
+    fit(data=train)
+  pred <- 
+    predict(model_fit, test) %>%
+    bind_cols(predict(model_fit, test, type = "prob")) %>%
+    bind_cols(test %>% select(TB_status))
+  
+  roc_auc <- pred %>% roc_auc(TB_status, .pred_Negative)
+  sens <- pred %>% sensitivity(TB_status, .pred_class)
+  spec <- pred %>% specificity(TB_status, .pred_class)
+  
+  perf <- tibble(Model = model, data="test") %>% 
+    mutate(auc = roc_auc$.estimate, sens =  sens$.estimate, spec = spec$.estimate)
+  
+  if(type==1){
+    return(perf)
+  }
+  else if(type==2){
+    return(pred)
+  }
+}
+```
+
+## Test set model performance: AUC, Sensitivity and Specificity
+```{r, message=FALSE}
+test_results <- foreach(x=1:6) %do% {
+    test_models(workflows$wflow_id[[x]], grid_results[[1]]$result[[x]], best_results[[x]], train_data, test_data, 1)
+} %>% bind_rows()
+
+test_results[3:5] <- test_results[3:5] %>% round(3)
+new_test_results <- foreach(x=1:6) %do% {
+  best_results[[x]]$std_err <- best_results[[x]]$std_err %>% round(5)
+  tibble(Model = workflows$wflow_id[[x]], data = "test") %>%
+  mutate(auc = paste0(test_results$auc[[x]], "\u00B1", best_results[[x]]$std_err),
+         sens = paste0(test_results$sens[[x]], "\u00B1", best_results[[x]]$std_err),
+         spec = paste0(test_results$spec[[x]], "\u00B1", best_results[[x]]$std_err) )
+} %>% bind_rows()
+
+arrange(new_test_results, desc(auc)) %>% 
+  kable(align=rep('c')) %>% 
+  kable_paper(full_width = F)
+```
+
+## Test set model performance: ROC curves with CI intervals
+```{r}
+cl <- makeCluster(availableCores(), type = "PSOCK")
+registerDoParallel(cl) 
+
+pROC_obj <- foreach(x=1:6) %do% {
+  my_ROC <- test_models(workflows$wflow_id[[x]], grid_results[[1]]$result[[x]], best_results[[x]], train_data, test_data, 2) %>%
+    roc(TB_status , .pred_Positive,
+        smoothed = FALSE,
+        # arguments for ci
+        ci=TRUE, ci.type = "bars",
+        ci.method = "bootstrap", 
+        boot.n = 5000, parallel = TRUE,
+        # arguments for plot
+        plot=FALSE)
+  par(pty = "s")
+  plot(my_ROC, legacy.axes=TRUE, grid = TRUE, print.auc=TRUE, show.thres=TRUE, print.auc.adj=c(0.5,1), main = workflows$wflow_id[[x]])  
+  plot(ci.se(my_ROC))
+}
+
+stopCluster(cl)
+```
+
+# Training and test set performance differences 
+```{r}
+diff <- foreach(x=1:6) %do% {
+    tibble(Model = workflows$wflow_id[[x]]) %>% 
+    mutate(auc = training_average$auc_mean[[x]]- test_results$auc[[x]], 
+    sens = training_average$sens_mean[[x]]- test_results$sens[[x]],
+    spec = training_average$spec_mean[[x]]- test_results$spec[[x]])
+} %>% bind_rows()
+arrange(diff, auc) %>% 
+  kable() %>% 
+  kable_paper(full_width = F)
+```
+
+# DeLong's AUC curve comparison test
+```{r}
+cl <- makeCluster(4, type = "PSOCK")
+registerDoParallel(cl)
+my_ROCobj <- foreach(x=1:6) %do% {
+    test_models(workflows$wflow_id[[x]], grid_results[[1]]$result[[x]], best_results[[x]], train_data, test_data, 2) %>%
+    roc(TB_status , .pred_Positive,
+        smoothed = FALSE,
+        # arguments for ci
+        ci=TRUE, ci.type = "bars",
+        ci.method = "bootstrap", 
+        boot.n = 5000, parallel = TRUE,
+        # arguments for plot
+        plot=FALSE)
+}
+stopCluster(cl)
+
+lst <- c()
+delong_test <- foreach(a=1:5) %do% {
+    temp <- foreach(x=(a+1):6) %do% {
+      roc.test(my_ROCobj[[a]], my_ROCobj[[x]], method="delong")
+    }
+    lst <- append(lst, temp)
+}
+```
+
+# p-value heatmap
+```{r}
+dummy <- data.frame(
+C5.0 = c(1,2,3,4),
+KNN = c(1,0,3,4),
+RF = c(1,0,7,4),
+SVM = c(1,0,7,-1),
+LDA = c(8,0,7,-1),
+EN = c(8,0,7,-1)
+)
+colNames <- names(dummy)
+mat <- matrix(NA, nrow = 6, ncol = 6)
+
+#p-values
+p_vals <- c()
+lst2 <- foreach(x=1:15) %do% {
+  val <- lst[[x]]$p.value
+  p_vals <- append(p_vals, val)
+} 
+mat[lower.tri(mat)] <- combn(colNames, 2, function(x) p_vals)
+
+#diff auc
+lst_diff <- c()
+diff2 <- foreach(a=1:5) %do% {
+  diff2_temp <- foreach(x=(a+1):6) %do% {
+    test_diff <- test_results$auc[[a]]-test_results$auc[[x]]
+    lst_diff <- append(lst_diff, test_diff)
+  }
+}
+mat[upper.tri(mat)] <- combn(colNames, 2, function(x) abs(lst_diff))
+
+mat <- round(mat,5)
+rownames(mat) = colnames(mat) = colnames(dummy)
+long <- reshape2::melt(mat)
+long$auc <- c(NA, lst_diff[[1]], lst_diff[[2]], lst_diff[[3]], lst_diff[[4]], lst_diff[[5]], NA,NA, lst_diff[[6]], lst_diff[[7]], lst_diff[[8]], lst_diff[[9]], NA,NA,NA, lst_diff[[10]], lst_diff[[11]], lst_diff[[12]], NA,NA,NA,NA, lst_diff[[13]], lst_diff[[14]], NA,NA,NA,NA,NA, lst_diff[[15]],NA,NA,NA,NA,NA,NA) %>% round(5)
+
+long %>% drop_na() %>%
+  ggplot(aes(Var1, Var2, fill=value, label=paste0(value, '\n', '(', auc, ')')) ) + 
+  geom_tile() +
+  geom_text(color="white") +
+  scale_fill_gradient2(low="deepskyblue",high="red",mid="black",trans="log", breaks = c(0.005, 0.05, 0.5), midpoint = 0.05) +
+  theme_classic()
+```
+
+
+
+# Multiple testing correction 
+```{r}
+bonferroni_correction <- p.adjust(p_vals, method = "bonferroni")
+bonferroni_correction
 ```
