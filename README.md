@@ -1,7 +1,7 @@
 # HonoursResearchProject
 
 ## Bioinformatics and Computational Biology
-Honour Student: Philo Tchokonte-Nana <br />
+Honours Student: Philo Tchokonte-Nana <br />
 Supervisor: Professor Gian Van der Spuy <br />
 
 # Performace evaluation of various machine learning algorithms for predictive modeling of TB diagnosis using Luminex data <br />
@@ -12,6 +12,7 @@ Supervisor: Professor Gian Van der Spuy <br />
 •	Method: Utilize R with the Tidymodel machine learning framework, using data collected in a clinical study <br />
 •	Performance: The performance of each algorithm will then be assessed in terms of sensitivity, specificity, and Area Under the ROC Curve (AUC)
 
-Click [honours_project.pdf](https://github.com/ptchokonte-nana/HonoursResearchProject/files/9890728/honours_project.pdf) to download.
+Click [honours_project.pdf](https://github.com/ptchokonte-nana/HonoursResearchProject/files/9927729/honours_project.pdf) to download.
+
 
 
