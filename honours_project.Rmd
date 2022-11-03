@@ -150,7 +150,7 @@ workflows <- all_workflow %>%
 ```
 
 # Model Tuning
-```{r tuning, warning=FALSE, message=FALSE}
+```{r tuning}
 grid_ctrl <- control_bayes(save_pred = TRUE, parallel_over = "everything",save_workflow = TRUE)
 
 cl <- makeCluster(availableCores(), type = "PSOCK")
@@ -215,7 +215,7 @@ fit_models <- function(model, grid, data, type){
 ```
 
 ## Training set model performance: AUC, Sensitivity and Specificity
-```{r, warning=FALSE, message=FALSE}
+```{r}
 training_results <- foreach(x=1:10) %do% {
   model_results <- foreach(y=1:6) %do% {
     fit_models(grid_results[[x]]$wflow_id[[y]], grid_results[[x]]$result[[y]], folds$splits[[x]], 1)
@@ -239,11 +239,11 @@ new_training_average <- foreach(x=1:6) %do% {
 
 arrange(new_training_average, desc(auc)) %>% 
   kable(align=rep('c')) %>% 
-  kable_paper(full_width = F)
+  kable_classic(full_width = F)
 ```
 
 ## Training set model performance: ROC curves
-```{r, message=FALSE}
+```{r}
 prediction_results <- foreach(x=1:10) %do% {
   model_perf <- foreach(y=1:6) %do% {
     fit_models(grid_results[[x]]$wflow_id[[y]], grid_results[[x]]$result[[y]], folds$splits[[x]], 2)
@@ -260,7 +260,7 @@ roc_curve
 ```
 
 ### Hyperparameter values extraction:
-```{r, warning=FALSE}
+```{r}
 best_grid <- foreach(x=1:10) %do% {
   model_results <- foreach(y=1:6) %do% {
     fit_models(grid_results[[x]]$wflow_id[[y]], grid_results[[x]]$result[[y]], folds$splits[[x]], 3)
@@ -312,23 +312,14 @@ test_models <- function(model, grid, best_result, train, test, type){
 ```
 
 ## Test set model performance: AUC, Sensitivity and Specificity
-```{r, message=FALSE}
+```{r}
 test_results <- foreach(x=1:6) %do% {
     test_models(workflows$wflow_id[[x]], grid_results[[1]]$result[[x]], best_results[[x]], train_data, test_data, 1)
 } %>% bind_rows()
 
-test_results[3:5] <- test_results[3:5] %>% round(3)
-new_test_results <- foreach(x=1:6) %do% {
-  best_results[[x]]$std_err <- best_results[[x]]$std_err %>% round(5)
-  tibble(Model = workflows$wflow_id[[x]], data = "test") %>%
-  mutate(auc = paste0(test_results$auc[[x]], "\u00B1", best_results[[x]]$std_err),
-         sens = paste0(test_results$sens[[x]], "\u00B1", best_results[[x]]$std_err),
-         spec = paste0(test_results$spec[[x]], "\u00B1", best_results[[x]]$std_err) )
-} %>% bind_rows()
-
-arrange(new_test_results, desc(auc)) %>% 
+arrange(test_results, desc(auc)) %>% 
   kable(align=rep('c')) %>% 
-  kable_paper(full_width = F)
+  kable_classic(full_width = F)
 ```
 
 ## Test set model performance: ROC curves with CI intervals
@@ -364,7 +355,7 @@ diff <- foreach(x=1:6) %do% {
 } %>% bind_rows()
 arrange(diff, auc) %>% 
   kable() %>% 
-  kable_paper(full_width = F)
+  kable_classic(full_width = F)
 ```
 
 # DeLong's AUC curve comparison test
@@ -414,15 +405,15 @@ lst2 <- foreach(x=1:15) %do% {
 } 
 mat[lower.tri(mat)] <- combn(colNames, 2, function(x) p_vals)
 
-#diff auc
+#differences between AUC 
 lst_diff <- c()
 diff2 <- foreach(a=1:5) %do% {
   diff2_temp <- foreach(x=(a+1):6) %do% {
     test_diff <- test_results$auc[[a]]-test_results$auc[[x]]
-    lst_diff <- append(lst_diff, test_diff)
+    lst_diff <- append(lst_diff, abs(test_diff))
   }
 }
-mat[upper.tri(mat)] <- combn(colNames, 2, function(x) abs(lst_diff))
+mat[upper.tri(mat)] <- combn(colNames, 2, function(x) lst_diff)
 
 mat <- round(mat,5)
 rownames(mat) = colnames(mat) = colnames(dummy)
@@ -430,17 +421,13 @@ long <- reshape2::melt(mat)
 long$auc <- c(NA, lst_diff[[1]], lst_diff[[2]], lst_diff[[3]], lst_diff[[4]], lst_diff[[5]], NA,NA, lst_diff[[6]], lst_diff[[7]], lst_diff[[8]], lst_diff[[9]], NA,NA,NA, lst_diff[[10]], lst_diff[[11]], lst_diff[[12]], NA,NA,NA,NA, lst_diff[[13]], lst_diff[[14]], NA,NA,NA,NA,NA, lst_diff[[15]],NA,NA,NA,NA,NA,NA) %>% round(5)
 
 long %>% drop_na() %>%
-  ggplot(aes(Var1, Var2, fill=value, label=paste0(value, '\n', '(', auc, ')')) ) + 
+  ggplot(aes(Var1, Var2, fill=value, label=paste0(auc, '\n', '(', value, ')')) ) + 
   geom_tile() +
   geom_text(color="white") +
-  scale_fill_gradient2(low="deepskyblue",high="red",mid="black",trans="log", breaks = c(0.005, 0.05, 0.5), midpoint = 0.05) +
-  theme_classic()
+  scale_fill_gradient2(low="deepskyblue",high="red",mid="black",trans="log", breaks = c(0.005, 0.05, 0.5), midpoint = 0.05) + theme_classic() + labs(x="ML Algorithms", y="ML Algorithms")
 ```
-
-
 
 # Multiple testing correction 
 ```{r}
-bonferroni_correction <- p.adjust(p_vals, method = "bonferroni")
-bonferroni_correction
+p.adjust(p_vals, method = "bonferroni")
 ```
