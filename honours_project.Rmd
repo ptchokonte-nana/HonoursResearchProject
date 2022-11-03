@@ -12,10 +12,10 @@ knitr::opts_chunk$set(cache = TRUE, warning = FALSE, message = FALSE, cache.lazy
 
 # Data Preparation
 ```{r prep}
-my_file <- "C:/Users/21811431/Documents/GitHubProjects/HonoursProject/ResearchProject/my_dataset.csv"
+my_file <- "my_dataset.csv"
 my_data <- read.csv(my_file,header=TRUE,sep=",") %>% janitor::clean_names(.) %>% rename(.,hiv_status=hi_vstatus) %>% rename(.,TB_status=final_class) 
 my_data <- arrange(my_data, barcode)
-my_metadata <- "C:/Users/21811431/Documents/GitHubProjects/HonoursProject/ResearchProject/metadata.csv"
+my_metadata <- "metadata.csv"
 metadata <- read.csv(my_metadata,header=TRUE,sep=",") %>% janitor::clean_names(.) %>% rename(.,hiv_status=hi_vstatus) 
 metadata <- semi_join(metadata,my_data,by="barcode")
 metadata <- arrange(metadata,barcode)
