@@ -12,7 +12,8 @@ Supervisor: Professor Gian Van der Spuy <br />
 •	Method: This suggested method assessed classification performances of sparseLDA, support vector machine (SVM), K-nearest neighbours (KNN), C5.0, elastic-net logistic regression, and random forest. All statistical analyses were performed using R (ver. 4.2.1) and the Tidymodels machine learning framework, working in RStudio running on Windows. The doParallel package made it easier to perform parallel processing  <br />
 •	Performance Measurement: Area under the receiver operating characteristic (ROC) curve (AUC), Sensitivity and Specificity
 
-Click [honours_project.pdf](https://github.com/ptchokonte-nana/HonoursResearchProject/files/9927729/honours_project.pdf) to download.
+Click [honours_project.pdf](https://github.com/ptchokonte-nana/HonoursResearchProject/files/10004965/honours_project.pdf) to download.
 
 The code runs for approximately 3.5-4 hours and an additional space of 2GB is needed. A cluster type “FORK” can be registered for Linux systems operating parallel processing.
+
 
